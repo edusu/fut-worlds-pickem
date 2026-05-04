@@ -1,7 +1,7 @@
 -- Owner: services/bot
 -- Tables: users, groups, group_members
--- The bot service writes to all three when handling /start, /crear_pickem,
--- /unirme. Other services may READ but should not write.
+-- The bot service writes to all three when handling /start, /new_pickem,
+-- /join. Other services may READ but should not write.
 
 CREATE TABLE users (
     telegram_id    BIGINT PRIMARY KEY,

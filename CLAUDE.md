@@ -200,12 +200,38 @@ just front                     # http://localhost:5173
 Jaeger UI is at `http://localhost:16686`. NATS monitoring at
 `http://localhost:8222`.
 
+## Telegram bot commands
+
+Canonical list registered with BotFather (and synced via `setMyCommands` —
+see ROADMAP feature #7). All descriptions are English; keep this table in
+sync with the actual handlers in `services/bot/src/commands/`.
+
+| Command       | Description                                            |
+|---------------|--------------------------------------------------------|
+| `/start`      | Show welcome message and quick help                    |
+| `/new_pickem` | Create a pickem in this group (admin only)             |
+| `/join`       | Join the pickem in this group                          |
+| `/play`       | Open the Mini App to enter your predictions            |
+| `/ranking`    | Show the current standings in this group               |
+| `/help`       | Show available commands and how to play                |
+
+Paste-ready BotFather format:
+
+```
+start - Show welcome message and quick help
+new_pickem - Create a pickem in this group (admin only)
+join - Join the pickem in this group
+play - Open the Mini App to enter your predictions
+ranking - Show the current standings in this group
+help - Show available commands and how to play
+```
+
 ## Current scope (v1)
 
 What's in:
 
-- Bot receives `/start`, `/crear_pickem`, `/unirme`, `/ranking` and replies
-  synchronously to the invoking chat.
+- Bot receives `/start`, `/new_pickem`, `/join`, `/play`, `/ranking`, `/help`
+  and replies synchronously to the invoking chat.
 - Mini App lets users submit predictions (auth via signed `initData`).
 - Events service ingests fixtures from football-data.org, detects finished
   matches, and writes `predictions.points_awarded` via the scorer.
