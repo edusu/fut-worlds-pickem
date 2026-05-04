@@ -1,18 +1,13 @@
 //! Trait abstraction over the Telegram Bot API plus a `frankenstein`-backed
 //! implementation. Anything that needs to talk to Telegram should depend on
 //! the trait, not on `frankenstein` directly — that keeps tests trivial
-//! (just hand-roll a mock impl).
+//! (just hand-roll a mock impl). Errors live in `crate::error`.
+
+pub mod error;
+
+pub use error::{TelegramError, TelegramReport, TelegramResult};
 
 use async_trait::async_trait;
-use thiserror::Error;
-
-#[derive(Debug, Error)]
-pub enum TelegramError {
-    #[error("telegram api error: {0}")]
-    Api(String),
-}
-
-pub type TelegramResult<T> = Result<T, TelegramError>;
 
 /// One inline-keyboard button. Either a callback (data routed back to the
 /// bot) or a URL (opens a Mini App / external link).
@@ -55,6 +50,7 @@ pub struct FrankensteinClient {
 }
 
 impl FrankensteinClient {
+    /// Build a client bound to the given Telegram bot token.
     pub fn new(token: impl Into<String>) -> Self {
         Self {
             token: token.into(),
@@ -71,7 +67,8 @@ impl FrankensteinClient {
 #[async_trait]
 impl TelegramClient for FrankensteinClient {
     async fn send_text(&self, _chat_id: i64, _text: &str) -> TelegramResult<()> {
-        // TODO: build SendMessageParams and call AsyncApi::send_message
+        // TODO: build SendMessageParams and call AsyncApi::send_message.
+        // Use change_context(TelegramError::Api) on the call result.
         todo!("FrankensteinClient::send_text")
     }
 

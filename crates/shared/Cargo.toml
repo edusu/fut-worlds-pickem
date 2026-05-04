@@ -11,6 +11,7 @@ description = "Cross-cutting utilities: configuration, tracing, error types."
 [dependencies]
 serde = { workspace = true }
 thiserror = { workspace = true }
+error-stack = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

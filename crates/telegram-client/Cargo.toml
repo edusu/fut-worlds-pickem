@@ -13,4 +13,5 @@ frankenstein = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true }
 thiserror = { workspace = true }
+error-stack = { workspace = true }
 tracing = { workspace = true }

@@ -6,19 +6,10 @@
  * server validates the signature with HMAC-SHA256 against the bot token.
  */
 
+import { ApiError } from './errors';
 import { getInitDataRaw } from './telegram';
 
 const baseUrl = import.meta.env.VITE_API_BASE_URL ?? '';
-
-export class ApiError extends Error {
-  constructor(
-    public readonly status: number,
-    message: string,
-  ) {
-    super(message);
-    this.name = 'ApiError';
-  }
-}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const initData = getInitDataRaw();
@@ -42,3 +33,7 @@ export const api = {
   post: <T>(path: string, body: unknown) =>
     request<T>(path, { method: 'POST', body: JSON.stringify(body) }),
 };
+
+// Re-export so existing import sites that pulled `ApiError` from './api'
+// keep compiling. New code should import from './errors' directly.
+export { ApiError } from './errors';

@@ -6,8 +6,9 @@ use tracing::info;
 /// Subscribe to `pickem.match.finished` and award points for every prediction
 /// on the finished match using `domain::scoring::calculate_points`.
 pub async fn run(_config: Config, _pool: PgPool, nats: async_nats::Client) -> anyhow::Result<()> {
-    let mut sub: Subscriber<MatchFinished> =
-        Subscriber::subscribe(&nats, topics::MATCH_FINISHED).await?;
+    let mut sub: Subscriber<MatchFinished> = Subscriber::subscribe(&nats, topics::MATCH_FINISHED)
+        .await
+        .map_err(shared::report_to_anyhow)?;
 
     info!(topic = topics::MATCH_FINISHED, "scorer ready");
 

@@ -18,7 +18,7 @@ use tracing::info;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     shared::tracing::init("events")?;
-    let config = Config::from_env()?;
+    let config = Config::from_env().map_err(shared::report_to_anyhow)?;
 
     let pool = persistence::init_pool(&config.database_url).await?;
     let nats = async_nats::connect(&config.nats_url).await?;

@@ -41,6 +41,7 @@ dependencies = [
  "axum",
  "chrono",
  "domain",
+ "error-stack",
  "hmac 0.13.0",
  "messaging",
  "persistence",
@@ -728,6 +729,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "error-stack",
  "serde",
  "thiserror 2.0.18",
  "uuid",
@@ -790,6 +792,16 @@ checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "error-stack"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "99a1a66f27cc1b82d6b8c2d24b3b1e90e6e67004a448081bbe58bd537f72a7c8"
+dependencies = [
+ "anyhow",
+ "rustc_version",
 ]
 
 [[package]]
@@ -1647,6 +1659,7 @@ version = "0.1.0"
 dependencies = [
  "async-nats",
  "chrono",
+ "error-stack",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -2715,6 +2728,7 @@ name = "shared"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "error-stack",
  "figment",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -2819,6 +2833,7 @@ name = "sports-client"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "error-stack",
  "reqwest 0.13.1",
  "serde",
  "serde_json",
@@ -3111,6 +3126,7 @@ name = "telegram-client"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "error-stack",
  "frankenstein",
  "thiserror 2.0.18",
  "tokio",

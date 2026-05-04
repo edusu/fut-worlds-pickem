@@ -2,8 +2,10 @@
 
 A Telegram bot + Mini App for football-prediction pickems during the 2026 World
 Cup. Friends create a pickem inside their Telegram group, predict scores via the
-Mini App, and the system scores predictions and posts the ranking back into the
-chat automatically.
+Mini App, and the system scores predictions automatically in the database.
+Ranking is pull-only — the bot answers `/ranking` and the Mini App has a ranking
+page; no push notifications to the chat (see [CLAUDE.md](./CLAUDE.md) §Current
+scope for what's deferred).
 
 ## Architecture
 
@@ -98,7 +100,8 @@ fut-worlds-pickem/
 └── frontend/miniapp/          # React + Vite Telegram Mini App
 ```
 
-Detailed contributor guide and conventions live in [CLAUDE.md](./CLAUDE.md).
+- Architecture, conventions, and how-tos: [CLAUDE.md](./CLAUDE.md)
+- Pending features and where to touch the code: [ROADMAP.md](./ROADMAP.md)
 
 ## License
 

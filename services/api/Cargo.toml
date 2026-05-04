@@ -31,6 +31,7 @@ chrono = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
+error-stack = { workspace = true }
 
 # Mini App initData verification
 hmac = { workspace = true }

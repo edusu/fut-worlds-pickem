@@ -30,3 +30,5 @@ coverage/
 
 # Sqlx offline cache (kept only if explicitly committed)
 .sqlx/
+
+ROADMAP.md

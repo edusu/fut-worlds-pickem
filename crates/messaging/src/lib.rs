@@ -5,23 +5,13 @@
 //! (2) declaring a topic constant in `topics`, (3) using `Publisher` /
 //! `Subscriber` to wire it into producer and consumer services.
 
+pub mod error;
 pub mod events;
 pub mod publisher;
 pub mod subscriber;
 pub mod topics;
 
+pub use error::{MessagingError, MessagingReport, MessagingResult};
 pub use events::*;
 pub use publisher::Publisher;
 pub use subscriber::Subscriber;
-
-use thiserror::Error;
-
-#[derive(Debug, Error)]
-pub enum MessagingError {
-    #[error("nats error: {0}")]
-    Nats(String),
-    #[error("serialization error: {0}")]
-    Serde(#[from] serde_json::Error),
-}
-
-pub type MessagingResult<T> = Result<T, MessagingError>;

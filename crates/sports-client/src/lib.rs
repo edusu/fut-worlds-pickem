@@ -2,22 +2,13 @@
 //! `events` service to ingest fixtures and results.
 //!
 //! Keeping the upstream API behind a typed client lets us swap providers
-//! later without touching ingestion logic.
+//! later without touching ingestion logic. Errors live in `crate::error`.
+
+pub mod error;
+
+pub use error::{SportsClientError, SportsClientReport, SportsResult};
 
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
-
-#[derive(Debug, Error)]
-pub enum SportsClientError {
-    #[error("http error: {0}")]
-    Http(#[from] reqwest::Error),
-    #[error("decode error: {0}")]
-    Decode(#[from] serde_json::Error),
-    #[error("upstream returned status {0}")]
-    Upstream(u16),
-}
-
-pub type SportsResult<T> = Result<T, SportsClientError>;
 
 /// Football-data.org API client.
 ///
@@ -40,6 +31,7 @@ impl Client {
         }
     }
 
+    /// Override the upstream base URL (mainly for tests against a mock server).
     pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
         self.base_url = base_url.into();
         self
@@ -50,7 +42,9 @@ impl Client {
         &self,
         _competition_code: &str,
     ) -> SportsResult<CompetitionMatches> {
-        // TODO: GET {base_url}/competitions/{competition_code}/matches with auth header
+        // TODO: GET {base_url}/competitions/{competition_code}/matches with auth header.
+        // Use ResultExt::change_context(SportsClientError::Http / Upstream / Decode) at
+        // each fallible step and `attach_with` for URL + status code context.
         let _ = (&self.http, &self.api_key, &self.base_url);
         todo!("Client::get_competition_matches")
     }

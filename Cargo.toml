@@ -32,6 +32,7 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.23", features = ["v4", "serde"] }
 thiserror = "2.0"
 anyhow = "1.0"
+error-stack = "0.7"
 
 # Async trait support
 async-trait = "0.1"

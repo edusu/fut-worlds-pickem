@@ -16,7 +16,7 @@ use tracing::info;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     shared::tracing::init("bot")?;
-    let config = Config::from_env()?;
+    let config = Config::from_env().map_err(shared::report_to_anyhow)?;
 
     info!("bot service starting");
 

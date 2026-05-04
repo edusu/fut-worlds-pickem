@@ -1,30 +1,21 @@
 //! Repository traits — abstract persistence ports.
 //!
 //! Each service depends on these traits, never on a concrete database driver.
-//! Concrete implementations live in the `persistence` crate.
+//! Concrete implementations live in the `persistence` crate. The error
+//! taxonomy lives in `crate::error`.
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use thiserror::Error;
 use uuid::Uuid;
+
+// Re-exported so the historical `domain::repository::RepoResult` import path
+// keeps compiling. The canonical home is `crate::error`.
+pub use crate::error::RepoResult;
 
 use crate::{
     Group, GroupMember, Match, Prediction, Round, RoundState, ScoringRule, TelegramChatId,
     TelegramUserId, User,
 };
-
-/// Errors any repository implementation may surface.
-#[derive(Debug, Error)]
-pub enum RepositoryError {
-    #[error("entity not found")]
-    NotFound,
-    #[error("integrity violation: {0}")]
-    Integrity(String),
-    #[error("backend error: {0}")]
-    Backend(#[source] Box<dyn std::error::Error + Send + Sync>),
-}
-
-pub type RepoResult<T> = Result<T, RepositoryError>;
 
 #[async_trait]
 pub trait UserRepository: Send + Sync {

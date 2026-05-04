@@ -1,3 +1,4 @@
+use error_stack::ResultExt;
 use serde::Serialize;
 use tracing::instrument;
 
@@ -11,6 +12,7 @@ pub struct Publisher {
 }
 
 impl Publisher {
+    /// Wrap an existing NATS client.
     pub fn new(client: async_nats::Client) -> Self {
         Self { client }
     }
@@ -20,16 +22,24 @@ impl Publisher {
     /// JSON is used (not protobuf) for ergonomics and observability — payloads
     /// stay human-readable in the NATS CLI and Jaeger spans. If volume becomes
     /// a concern, swap encoders here without touching call sites.
+    ///
+    /// Errors carry the originating cause attached to the report chain plus
+    /// the topic name as a printable attachment.
     #[instrument(skip(self, event), fields(topic = %topic))]
     pub async fn publish<T>(&self, topic: &str, event: &T) -> MessagingResult<()>
     where
         T: Serialize + ?Sized,
     {
-        let payload = serde_json::to_vec(event)?;
+        let payload = serde_json::to_vec(event)
+            .change_context(MessagingError::Serde)
+            .attach_with(|| format!("topic = {topic}"))?;
+
         self.client
             .publish(topic.to_string(), payload.into())
             .await
-            .map_err(|e| MessagingError::Nats(e.to_string()))?;
+            .change_context(MessagingError::Nats)
+            .attach_with(|| format!("topic = {topic}"))?;
+
         Ok(())
     }
 }

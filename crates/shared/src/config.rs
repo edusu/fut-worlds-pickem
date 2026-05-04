@@ -1,6 +1,7 @@
+use error_stack::ResultExt;
 use serde::Deserialize;
 
-use crate::errors::{SharedError, SharedResult};
+use crate::error::{SharedError, SharedResult};
 
 /// Configuration shared across services. Each service reads it from env vars
 /// at startup; values come from `.env` in development and from the
@@ -26,7 +27,8 @@ impl Config {
     /// Required keys: `DATABASE_URL`, `NATS_URL`, `TELEGRAM_BOT_TOKEN`,
     /// `FOOTBALL_API_KEY`, `API_BIND_ADDR`. Missing values produce a
     /// `SharedError::MissingConfig` so the service refuses to start with a
-    /// half-baked configuration.
+    /// half-baked configuration. The offending env-var name is attached to
+    /// the report chain via `attach_with`.
     pub fn from_env() -> SharedResult<Self> {
         Ok(Self {
             database_url: required("DATABASE_URL")?,
@@ -41,10 +43,15 @@ impl Config {
     }
 }
 
+/// Read a required env var, returning a `SharedError::MissingConfig` report
+/// with the offending key attached if it is unset or empty.
 fn required(key: &'static str) -> SharedResult<String> {
-    std::env::var(key).map_err(|_| SharedError::MissingConfig(key))
+    std::env::var(key)
+        .change_context(SharedError::MissingConfig)
+        .attach_with(|| format!("env var: {key}"))
 }
 
+/// Read an optional env var, returning `None` if unset or empty.
 fn optional(key: &'static str) -> Option<String> {
     std::env::var(key).ok().filter(|v| !v.is_empty())
 }

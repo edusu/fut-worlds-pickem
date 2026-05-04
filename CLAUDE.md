@@ -2,12 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+**Roadmap:** [ROADMAP.md](./ROADMAP.md) is the source of truth for what's
+pending and where to touch the code. This file (CLAUDE.md) covers stable
+architecture and conventions; ROADMAP.md covers changing priorities.
+
 ## Project summary
 
 Fut Worlds Pickem is a Telegram bot + Mini App for football-prediction pickems
 during the 2026 World Cup. Friends create a pickem inside their Telegram group,
-predict scores via the Mini App, and the system scores predictions and posts the
-ranking back into the chat automatically.
+predict scores via the Mini App, and the system scores predictions automatically
+in the database. Ranking is **pull-only for v1**: the bot replies to `/ranking`
+and the Mini App renders a ranking page on demand — no push notifications to
+the chat.
 
 ## Architecture
 
@@ -28,15 +34,20 @@ inside `frontend/miniapp/`) is consumed only by the API service.
                                        └──────────┘
 ```
 
-- **`services/bot`** — owns Telegram I/O. Long-polling update loop + a NATS
-  consumer subscribed to `pickem.notification.requested` (it is the *only*
-  service that calls the Telegram Bot API, by social convention).
+- **`services/bot`** — owns Telegram I/O. Long-polling update loop dispatching
+  slash commands. It is the *only* service that calls the Telegram Bot API
+  (social convention). The `event_consumers::notify` NATS consumer subscribed
+  to `pickem.notification.requested` is currently a stub — push-to-chat is
+  deferred (see "Current scope" below).
 - **`services/api`** — Axum HTTP server consumed by the Mini App. Every
   protected route is gated by `middleware::auth::verify_init_data` (HMAC-SHA256
-  over Telegram's signed `initData`).
-- **`services/events`** — three concurrent loops: ingester (polls
-  football-data.org), scheduler (`tokio-cron-scheduler` for round deadlines),
-  and scorer (consumes `pickem.match.finished` and writes points).
+  over Telegram's signed `initData`). The endpoint also enforces "round still
+  open" at submission time, since v1 has no background job to close rounds at
+  the deadline.
+- **`services/events`** — ingester (polls football-data.org for fixtures and
+  results) and scorer (consumes `pickem.match.finished` and writes
+  `predictions.points_awarded`). The scheduler module is scaffolded but inert
+  in v1 — deadlines are enforced at write time, not by a cron job.
 
 ### Library crates
 
@@ -151,9 +162,11 @@ Copy `.env.example` to `.env` for local dev. The `justfile` has
    `Subscriber::subscribe(&nats_client, topics::MY_TOPIC).await?`, then loop
    over `sub.next().await`.
 5. The bot is the **only** service allowed to consume
-   `pickem.notification.requested` and convert it into a Telegram send. Producers
-   that need to talk to a chat publish a `NotificationRequested` rather than
-   calling the Telegram API directly.
+   `pickem.notification.requested` and convert it into a Telegram send.
+   Producers that need to talk to a chat publish a `NotificationRequested`
+   rather than calling the Telegram API directly. **v1 status:** no producer
+   currently emits this event and the consumer is a stub — the contract is
+   defined but the path is dormant until push-to-chat is reintroduced.
 
 ## How to add a new database migration
 
@@ -186,6 +199,33 @@ just front                     # http://localhost:5173
 
 Jaeger UI is at `http://localhost:16686`. NATS monitoring at
 `http://localhost:8222`.
+
+## Current scope (v1)
+
+What's in:
+
+- Bot receives `/start`, `/crear_pickem`, `/unirme`, `/ranking` and replies
+  synchronously to the invoking chat.
+- Mini App lets users submit predictions (auth via signed `initData`).
+- Events service ingests fixtures from football-data.org, detects finished
+  matches, and writes `predictions.points_awarded` via the scorer.
+- Ranking is computed on demand: `/ranking` and `GET /api/groups/{id}/ranking`
+  both run a `SUM(points_awarded) GROUP BY user_id` against Postgres at
+  request time.
+
+What's deferred (scaffolded but dormant):
+
+- Push notifications to the chat. The `pickem.notification.requested`
+  contract, the bot's `event_consumers::notify` consumer, and the
+  `RoundDeadlineApproaching` / `RoundClosed` / `RoundScored` event variants
+  are all declared but no producer emits them.
+- The cron scheduler (`tokio-cron-scheduler`) — the module is scaffolded,
+  no jobs are registered. Round closing is enforced at write time by the API
+  validating `round.state == 'open' AND now < round.deadline_at`.
+
+When reintroducing push-to-chat: emit `NotificationRequested` from the relevant
+producer, wire the bot's notify consumer to render each `NotificationTemplate`
+variant, and only then add scheduler jobs that publish the timed templates.
 
 ## Things to know that aren't obvious from the code
 

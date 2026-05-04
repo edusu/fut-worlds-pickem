@@ -7,7 +7,9 @@ use tracing::info;
 /// ONLY consumer of this topic — the rule is enforced socially, not in code.
 pub async fn run(_config: Config, nats: async_nats::Client) -> anyhow::Result<()> {
     let mut sub: Subscriber<NotificationRequested> =
-        Subscriber::subscribe(&nats, topics::NOTIFICATION_REQUESTED).await?;
+        Subscriber::subscribe(&nats, topics::NOTIFICATION_REQUESTED)
+            .await
+            .map_err(shared::report_to_anyhow)?;
 
     info!(
         topic = topics::NOTIFICATION_REQUESTED,

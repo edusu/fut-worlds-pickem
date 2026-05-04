@@ -1,4 +1,5 @@
 use async_nats::Subscriber as NatsSubscriber;
+use error_stack::ResultExt;
 use serde::de::DeserializeOwned;
 use tracing::warn;
 
@@ -21,7 +22,8 @@ where
         let inner = client
             .subscribe(topic.to_string())
             .await
-            .map_err(|e| MessagingError::Nats(e.to_string()))?;
+            .change_context(MessagingError::Nats)
+            .attach_with(|| format!("topic = {topic}"))?;
         Ok(Self {
             inner,
             _marker: std::marker::PhantomData,
