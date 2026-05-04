@@ -1,0 +1,29 @@
+[package]
+name = "events"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+description = "Sports-data ingester, deadline scheduler, and prediction scorer."
+
+[[bin]]
+name = "events"
+path = "src/main.rs"
+
+[dependencies]
+domain = { path = "../../crates/domain" }
+persistence = { path = "../../crates/persistence" }
+messaging = { path = "../../crates/messaging" }
+sports-client = { path = "../../crates/sports-client" }
+shared = { path = "../../crates/shared" }
+
+tokio = { workspace = true }
+sqlx = { workspace = true }
+tokio-cron-scheduler = { workspace = true }
+async-nats = { workspace = true }
+serde = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }

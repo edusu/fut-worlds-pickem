@@ -1,0 +1,19 @@
+[package]
+name = "persistence"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+description = "PostgreSQL implementations of the domain repository ports."
+
+[dependencies]
+domain = { path = "../domain" }
+
+sqlx = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

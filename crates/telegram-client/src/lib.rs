@@ -1,0 +1,99 @@
+//! Trait abstraction over the Telegram Bot API plus a `frankenstein`-backed
+//! implementation. Anything that needs to talk to Telegram should depend on
+//! the trait, not on `frankenstein` directly — that keeps tests trivial
+//! (just hand-roll a mock impl).
+
+use async_trait::async_trait;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum TelegramError {
+    #[error("telegram api error: {0}")]
+    Api(String),
+}
+
+pub type TelegramResult<T> = Result<T, TelegramError>;
+
+/// One inline-keyboard button. Either a callback (data routed back to the
+/// bot) or a URL (opens a Mini App / external link).
+#[derive(Debug, Clone)]
+pub enum Button {
+    Callback { text: String, data: String },
+    Url { text: String, url: String },
+}
+
+#[async_trait]
+pub trait TelegramClient: Send + Sync {
+    /// Send a plain text message to a chat.
+    async fn send_text(&self, chat_id: i64, text: &str) -> TelegramResult<()>;
+
+    /// Send a message with an inline keyboard. `buttons` is laid out as rows.
+    async fn send_text_with_buttons(
+        &self,
+        chat_id: i64,
+        text: &str,
+        buttons: &[Vec<Button>],
+    ) -> TelegramResult<()>;
+
+    /// Acknowledge a callback query (clears the loading spinner on the
+    /// client). `text` is an optional toast.
+    async fn answer_callback_query(
+        &self,
+        callback_query_id: &str,
+        text: Option<&str>,
+    ) -> TelegramResult<()>;
+
+    /// Register the bot's webhook URL (no-op if using long polling).
+    async fn set_webhook(&self, url: &str) -> TelegramResult<()>;
+}
+
+/// `frankenstein`-backed implementation. Wraps the async API client and a
+/// bot token. For now everything is `todo!()` — only the trait shape and
+/// type plumbing are real.
+pub struct FrankensteinClient {
+    token: String,
+}
+
+impl FrankensteinClient {
+    pub fn new(token: impl Into<String>) -> Self {
+        Self {
+            token: token.into(),
+        }
+    }
+
+    /// Expose the token only to consumers that already proved they need it
+    /// (e.g. for HMAC validation of `initData`).
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+}
+
+#[async_trait]
+impl TelegramClient for FrankensteinClient {
+    async fn send_text(&self, _chat_id: i64, _text: &str) -> TelegramResult<()> {
+        // TODO: build SendMessageParams and call AsyncApi::send_message
+        todo!("FrankensteinClient::send_text")
+    }
+
+    async fn send_text_with_buttons(
+        &self,
+        _chat_id: i64,
+        _text: &str,
+        _buttons: &[Vec<Button>],
+    ) -> TelegramResult<()> {
+        // TODO: convert `buttons` to InlineKeyboardMarkup and send.
+        todo!("FrankensteinClient::send_text_with_buttons")
+    }
+
+    async fn answer_callback_query(
+        &self,
+        _callback_query_id: &str,
+        _text: Option<&str>,
+    ) -> TelegramResult<()> {
+        todo!("FrankensteinClient::answer_callback_query")
+    }
+
+    async fn set_webhook(&self, _url: &str) -> TelegramResult<()> {
+        todo!("FrankensteinClient::set_webhook")
+    }
+}

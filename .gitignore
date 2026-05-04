@@ -1,0 +1,32 @@
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# Node / frontend
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
+
+# Logs
+*.log
+logs/
+
+# Coverage
+coverage/
+*.profraw
+
+# Sqlx offline cache (kept only if explicitly committed)
+.sqlx/

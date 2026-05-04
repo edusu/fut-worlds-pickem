@@ -1,0 +1,13 @@
+target/
+node_modules/
+dist/
+.git/
+.github/
+.env
+.env.*
+*.md
+!README.md
+.idea/
+.vscode/
+.DS_Store
+*.log

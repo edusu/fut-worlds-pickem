@@ -1,0 +1,29 @@
+[package]
+name = "bot"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+description = "Telegram bot service: long-polling updates and notification delivery."
+
+[[bin]]
+name = "bot"
+path = "src/main.rs"
+
+[dependencies]
+domain = { path = "../../crates/domain" }
+persistence = { path = "../../crates/persistence" }
+messaging = { path = "../../crates/messaging" }
+telegram-client = { path = "../../crates/telegram-client" }
+shared = { path = "../../crates/shared" }
+
+tokio = { workspace = true }
+sqlx = { workspace = true }
+frankenstein = { workspace = true }
+async-nats = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }

@@ -1,0 +1,98 @@
+# Full stack: dev dependencies + the three Rust services + the Mini App.
+# Use this for end-to-end smoke tests and the staging environment.
+
+services:
+  postgres:
+    extends:
+      file: docker-compose.dev.yml
+      service: postgres
+
+  nats:
+    extends:
+      file: docker-compose.dev.yml
+      service: nats
+
+  jaeger:
+    extends:
+      file: docker-compose.dev.yml
+      service: jaeger
+
+  bot:
+    build:
+      context: .
+      dockerfile: services/bot/Dockerfile
+    container_name: fwp-bot
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-pickem}:${POSTGRES_PASSWORD:-pickem}@postgres:5432/${POSTGRES_DB:-pickem}
+      NATS_URL: nats://nats:4222
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-}
+      FOOTBALL_API_KEY: ${FOOTBALL_API_KEY}
+      API_BIND_ADDR: 0.0.0.0:8080
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+      RUST_LOG: ${RUST_LOG:-info}
+
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    container_name: fwp-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-pickem}:${POSTGRES_PASSWORD:-pickem}@postgres:5432/${POSTGRES_DB:-pickem}
+      NATS_URL: nats://nats:4222
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-}
+      FOOTBALL_API_KEY: ${FOOTBALL_API_KEY}
+      API_BIND_ADDR: 0.0.0.0:8080
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+      RUST_LOG: ${RUST_LOG:-info}
+
+  events:
+    build:
+      context: .
+      dockerfile: services/events/Dockerfile
+    container_name: fwp-events
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-pickem}:${POSTGRES_PASSWORD:-pickem}@postgres:5432/${POSTGRES_DB:-pickem}
+      NATS_URL: nats://nats:4222
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-}
+      FOOTBALL_API_KEY: ${FOOTBALL_API_KEY}
+      API_BIND_ADDR: 0.0.0.0:8080
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+      RUST_LOG: ${RUST_LOG:-info}
+
+  miniapp:
+    build:
+      context: ./frontend/miniapp
+      dockerfile: Dockerfile
+    container_name: fwp-miniapp
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    depends_on:
+      - api
+
+volumes:
+  postgres-data:
+  nats-data:

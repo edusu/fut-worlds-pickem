@@ -1,0 +1,48 @@
+# Development dependencies only — Postgres, NATS, and Jaeger.
+# Run the Rust services and the Mini App on the host (`just bot|api|events|front`).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: fwp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pickem}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pickem}
+      POSTGRES_DB: ${POSTGRES_DB:-pickem}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pickem} -d ${POSTGRES_DB:-pickem}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  nats:
+    image: nats:2-alpine
+    container_name: fwp-nats
+    restart: unless-stopped
+    # -js enables JetStream (durable streams + consumers).
+    command: ["-js", "-m", "8222"]
+    ports:
+      - "4222:4222"   # client
+      - "8222:8222"   # monitoring
+    volumes:
+      - nats-data:/data
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: fwp-jaeger
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686" # UI
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+
+volumes:
+  postgres-data:
+  nats-data:
