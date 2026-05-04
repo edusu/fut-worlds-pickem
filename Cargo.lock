@@ -292,6 +292,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-nats",
+ "chrono",
  "domain",
  "frankenstein",
  "messaging",
@@ -303,6 +304,7 @@ dependencies = [
  "telegram-client",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -1950,6 +1952,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "domain",
+ "error-stack",
  "sqlx",
  "thiserror 2.0.18",
  "tracing",

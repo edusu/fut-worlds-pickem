@@ -9,15 +9,11 @@ use super::user::TelegramUserId;
 #[serde(transparent)]
 pub struct TelegramChatId(pub i64);
 
-/// Role a user has within a pickem group.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum GroupRole {
-    Owner,
-    Player,
-}
-
 /// A pickem group: 1:1 with a Telegram chat.
+///
+/// `owner_id` records who created the pickem (the user that ran
+/// `/new_pickem`). It carries no privilege today — everyone is treated
+/// equally — and is kept purely for audit/lineage.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Group {
     pub id: Uuid,
@@ -28,11 +24,11 @@ pub struct Group {
     pub created_at: DateTime<Utc>,
 }
 
-/// Membership row linking a user to a group with a role.
+/// Membership row linking a user to a group. The relation has no role:
+/// every member is treated equally for predictions, scoring, and ranking.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GroupMember {
     pub group_id: Uuid,
     pub user_id: TelegramUserId,
-    pub role: GroupRole,
     pub joined_at: DateTime<Utc>,
 }

@@ -23,7 +23,11 @@ CREATE TABLE groups (
 CREATE TABLE group_members (
     group_id  UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
     user_id   BIGINT NOT NULL REFERENCES users(telegram_id),
-    role      TEXT NOT NULL DEFAULT 'player',
     joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (group_id, user_id)
 );
+
+-- The composite PK indexes (group_id, user_id) which serves group→members
+-- lookups (`/ranking`). The reverse direction — "what pickems is this user
+-- in?" — needs an explicit index on user_id alone.
+CREATE INDEX group_members_user_id_idx ON group_members (user_id);

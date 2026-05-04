@@ -6,10 +6,12 @@
 //!   2. `event_consumers::notify` — subscribes to `pickem.notification.requested`
 //!      and translates each event into a Telegram message.
 
+mod app_state;
 mod commands;
 mod event_consumers;
 mod update_loop;
 
+use app_state::AppState;
 use shared::Config;
 use tracing::info;
 
@@ -22,8 +24,9 @@ async fn main() -> anyhow::Result<()> {
 
     let nats = async_nats::connect(&config.nats_url).await?;
     let pool = persistence::init_pool(&config.database_url).await?;
+    let state = AppState::new(pool);
 
-    let updates = update_loop::run(config.clone(), pool.clone());
+    let updates = update_loop::run(config.clone(), state.clone());
     let notifier = event_consumers::notify::run(config.clone(), nats.clone());
 
     tokio::try_join!(updates, notifier)?;
