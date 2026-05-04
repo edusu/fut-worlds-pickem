@@ -8,6 +8,10 @@ pub mod error;
 pub use error::{TelegramError, TelegramReport, TelegramResult};
 
 use async_trait::async_trait;
+use error_stack::ResultExt;
+use frankenstein::client_reqwest::Bot;
+use frankenstein::methods::SendMessageParams;
+use frankenstein::AsyncTelegramApi;
 
 /// One inline-keyboard button. Either a callback (data routed back to the
 /// bot) or a URL (opens a Mini App / external link).
@@ -42,19 +46,21 @@ pub trait TelegramClient: Send + Sync {
     async fn set_webhook(&self, url: &str) -> TelegramResult<()>;
 }
 
-/// `frankenstein`-backed implementation. Wraps the async API client and a
-/// bot token. For now everything is `todo!()` — only the trait shape and
-/// type plumbing are real.
+/// `frankenstein`-backed implementation. Wraps a `frankenstein::Bot` (the
+/// async HTTP client) and the raw bot token. The `Bot` itself is cheap to
+/// clone — it holds a `reqwest::Client` internally — but we keep one per
+/// `FrankensteinClient` and access it by reference.
 pub struct FrankensteinClient {
     token: String,
+    bot: Bot,
 }
 
 impl FrankensteinClient {
     /// Build a client bound to the given Telegram bot token.
     pub fn new(token: impl Into<String>) -> Self {
-        Self {
-            token: token.into(),
-        }
+        let token = token.into();
+        let bot = Bot::new(&token);
+        Self { token, bot }
     }
 
     /// Expose the token only to consumers that already proved they need it
@@ -62,14 +68,29 @@ impl FrankensteinClient {
     pub fn token(&self) -> &str {
         &self.token
     }
+
+    pub fn bot(&self) -> &Bot {
+        &self.bot
+    }
 }
 
 #[async_trait]
 impl TelegramClient for FrankensteinClient {
-    async fn send_text(&self, _chat_id: i64, _text: &str) -> TelegramResult<()> {
-        // TODO: build SendMessageParams and call AsyncApi::send_message.
-        // Use change_context(TelegramError::Api) on the call result.
-        todo!("FrankensteinClient::send_text")
+    /// Send a plain-text message. Builds `SendMessageParams` with `chat_id`
+    /// and `text` only — formatting, threads and reply-markup default to
+    /// `None`. Wraps any frankenstein error as `TelegramError::Api`.
+    async fn send_text(&self, chat_id: i64, text: &str) -> TelegramResult<()> {
+        let params = SendMessageParams::builder()
+            .chat_id(chat_id)
+            .text(text.to_string())
+            .build();
+
+        self.bot
+            .send_message(&params)
+            .await
+            .change_context(TelegramError::Api)?;
+
+        Ok(())
     }
 
     async fn send_text_with_buttons(

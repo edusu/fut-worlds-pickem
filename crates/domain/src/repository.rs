@@ -25,9 +25,22 @@ pub trait UserRepository: Send + Sync {
 
 #[async_trait]
 pub trait GroupRepository: Send + Sync {
-    async fn create(&self, group: &Group) -> RepoResult<()>;
+    /// Look up the pickem bound to a Telegram chat. `None` means there is
+    /// no pickem in that chat yet.
     async fn find_by_chat(&self, chat_id: TelegramChatId) -> RepoResult<Option<Group>>;
+
+    /// Atomically create a pickem and register the invoking user as its
+    /// first member. Both writes happen in a single transaction — there is
+    /// no API to create a `Group` without seeding `group_members`, because
+    /// a pickem with zero members is an invalid state for the bot to ever
+    /// observe.
+    async fn create_with_owner(&self, group: &Group, member: &GroupMember) -> RepoResult<()>;
+
+    /// Idempotently append a member to an existing pickem. Re-adding the
+    /// same `(group_id, user_id)` pair is a silent no-op.
     async fn add_member(&self, member: &GroupMember) -> RepoResult<()>;
+
+    /// Members of a pickem in join order.
     async fn list_members(&self, group_id: Uuid) -> RepoResult<Vec<GroupMember>>;
 }
 

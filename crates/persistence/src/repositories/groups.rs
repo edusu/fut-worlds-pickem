@@ -18,10 +18,18 @@ impl PgGroupRepository {
 
 #[async_trait]
 impl GroupRepository for PgGroupRepository {
-    /// Insert a new pickem. Surfaces `RepositoryError::Integrity` when the
-    /// chat already has one (the `telegram_chat_id` UNIQUE constraint),
+    /// Atomically insert the pickem row and the owner's membership row.
+    /// Both statements run on the same `Transaction`, so a failure of the
+    /// second rolls back the first. Surfaces `RepositoryError::Integrity`
+    /// when the chat already has a pickem (UNIQUE on `telegram_chat_id`),
     /// which the caller turns into "you already have a pickem here".
-    async fn create(&self, group: &Group) -> RepoResult<()> {
+    async fn create_with_owner(&self, group: &Group, member: &GroupMember) -> RepoResult<()> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .change_context(RepositoryError::Backend)?;
+
         sqlx::query(
             r#"
             INSERT INTO groups (id, telegram_chat_id, name, owner_id, scoring_rule_id, created_at)
@@ -34,12 +42,9 @@ impl GroupRepository for PgGroupRepository {
         .bind(group.owner_id.0)
         .bind(group.scoring_rule_id)
         .bind(group.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| {
-            // Unique-violation on (telegram_chat_id) means a pickem already
-            // exists for this chat — distinct from a generic backend error
-            // so the handler can produce a user-facing message.
             let kind = match &e {
                 sqlx::Error::Database(db) if db.is_unique_violation() => {
                     RepositoryError::Integrity
@@ -48,6 +53,23 @@ impl GroupRepository for PgGroupRepository {
             };
             Report::new(e).change_context(kind)
         })?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO group_members (group_id, user_id, joined_at)
+            VALUES ($1, $2, $3)
+            "#,
+        )
+        .bind(member.group_id)
+        .bind(member.user_id.0)
+        .bind(member.joined_at)
+        .execute(&mut *tx)
+        .await
+        .change_context(RepositoryError::Backend)?;
+
+        tx.commit()
+            .await
+            .change_context(RepositoryError::Backend)?;
 
         Ok(())
     }

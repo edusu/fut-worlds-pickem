@@ -58,15 +58,15 @@ pub async fn handle(state: &AppState, ctx: &CommandContext) -> anyhow::Result<Ha
         created_at: now,
     };
 
-    state.groups.create(&group).await.map_err(report_to_anyhow)?;
+    let owner_member = GroupMember {
+        group_id: group.id,
+        user_id: ctx.user.telegram_id,
+        joined_at: now,
+    };
 
     state
         .groups
-        .add_member(&GroupMember {
-            group_id: group.id,
-            user_id: ctx.user.telegram_id,
-            joined_at: now,
-        })
+        .create_with_owner(&group, &owner_member)
         .await
         .map_err(report_to_anyhow)?;
 

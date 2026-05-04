@@ -11,8 +11,11 @@ mod commands;
 mod event_consumers;
 mod update_loop;
 
+use std::sync::Arc;
+
 use app_state::AppState;
 use shared::Config;
+use telegram_client::FrankensteinClient;
 use tracing::info;
 
 #[tokio::main]
@@ -24,7 +27,8 @@ async fn main() -> anyhow::Result<()> {
 
     let nats = async_nats::connect(&config.nats_url).await?;
     let pool = persistence::init_pool(&config.database_url).await?;
-    let state = AppState::new(pool);
+    let telegram = Arc::new(FrankensteinClient::new(&config.telegram_bot_token));
+    let state = AppState::new(pool, telegram);
 
     let updates = update_loop::run(config.clone(), state.clone());
     let notifier = event_consumers::notify::run(config.clone(), nats.clone());

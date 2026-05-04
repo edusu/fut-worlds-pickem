@@ -59,7 +59,9 @@ sqlx = { version = "0.8", default-features = false, features = [
 async-nats = "0.47"
 
 # Telegram
-frankenstein = "0.49"
+# `client-reqwest` brings the async `Bot` HTTP client + the `AsyncTelegramApi`
+# trait. Without this feature the crate is just type definitions.
+frankenstein = { version = "0.49", features = ["client-reqwest"] }
 
 # Scheduler
 tokio-cron-scheduler = "0.15"
