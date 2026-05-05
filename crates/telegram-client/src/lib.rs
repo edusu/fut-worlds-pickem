@@ -4,8 +4,10 @@
 //! (just hand-roll a mock impl). Errors live in `crate::error`.
 
 pub mod error;
+pub mod throttle;
 
 pub use error::{TelegramError, TelegramReport, TelegramResult};
+pub use throttle::ThrottledTelegramClient;
 
 use async_trait::async_trait;
 use error_stack::ResultExt;
@@ -48,8 +50,9 @@ pub trait TelegramClient: Send + Sync {
 
 /// `frankenstein`-backed implementation. Wraps a `frankenstein::Bot` (the
 /// async HTTP client) and the raw bot token. The `Bot` itself is cheap to
-/// clone — it holds a `reqwest::Client` internally — but we keep one per
-/// `FrankensteinClient` and access it by reference.
+/// clone — it holds a `reqwest::Client` internally — so cloning the
+/// wrapper shares the underlying HTTP connection pool too.
+#[derive(Clone)]
 pub struct FrankensteinClient {
     token: String,
     bot: Bot,

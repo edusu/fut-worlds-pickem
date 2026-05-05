@@ -2557,7 +2557,7 @@ dependencies = [
 [[package]]
 name = "rust-utils"
 version = "0.1.0"
-source = "git+https://github.com/edusu/rust-utils?rev=f6da01b4fa4cf96f2a9c219929f5c079aeef5298#f6da01b4fa4cf96f2a9c219929f5c079aeef5298"
+source = "git+https://github.com/edusu/rust-utils?rev=eec9a260932f86b201e9c01682fc2079d0b31581#eec9a260932f86b201e9c01682fc2079d0b31581"
 dependencies = [
  "async-nats",
  "error-stack",
@@ -3326,6 +3326,7 @@ dependencies = [
  "async-trait",
  "error-stack",
  "frankenstein",
+ "rust-utils",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
