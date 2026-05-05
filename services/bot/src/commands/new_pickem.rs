@@ -52,7 +52,10 @@ pub async fn handle(state: &AppState, ctx: &CommandContext) -> anyhow::Result<Ha
         telegram_chat_id: ctx.chat_id,
         // Until we route the chat title through the update parser, fall
         // back to a generic name. The owner can rename it later.
-        name: ctx.chat_title.clone().unwrap_or_else(|| "Pickem".to_string()),
+        name: ctx
+            .chat_title
+            .clone()
+            .unwrap_or_else(|| "Pickem".to_string()),
         owner_id: ctx.user.telegram_id,
         scoring_rule_id: scoring_rule.id,
         created_at: now,

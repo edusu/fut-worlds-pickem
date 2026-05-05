@@ -46,9 +46,7 @@ impl GroupRepository for PgGroupRepository {
         .await
         .map_err(|e| {
             let kind = match &e {
-                sqlx::Error::Database(db) if db.is_unique_violation() => {
-                    RepositoryError::Integrity
-                }
+                sqlx::Error::Database(db) if db.is_unique_violation() => RepositoryError::Integrity,
                 _ => RepositoryError::Backend,
             };
             Report::new(e).change_context(kind)
@@ -67,9 +65,7 @@ impl GroupRepository for PgGroupRepository {
         .await
         .change_context(RepositoryError::Backend)?;
 
-        tx.commit()
-            .await
-            .change_context(RepositoryError::Backend)?;
+        tx.commit().await.change_context(RepositoryError::Backend)?;
 
         Ok(())
     }

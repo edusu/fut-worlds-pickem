@@ -1,5 +1,5 @@
 use error_stack::ResultExt;
-use serde::Deserialize;
+use rust_utils::secret::Secret;
 
 use crate::error::{SharedError, SharedResult};
 
@@ -9,13 +9,26 @@ use crate::error::{SharedError, SharedResult};
 ///
 /// Use `Config::from_env()` rather than reading env vars ad-hoc — that gives
 /// us a single source of truth and a single failure point.
-#[derive(Debug, Clone, Deserialize)]
+///
+/// Secret-bearing fields (`database_url`, `telegram_bot_token`,
+/// `football_api_key`) are wrapped in `Secret<String>` so a stray
+/// `tracing!("{:?}", config)` or panic backtrace cannot leak credentials.
+/// Call sites that need the raw value use `.expose()`.
+#[derive(Debug, Clone)]
 pub struct Config {
-    pub database_url: String,
+    /// Postgres connection string. Includes the password in the URL form
+    /// `postgres://user:pass@host:5432/db`, hence `Secret`.
+    pub database_url: Secret<String>,
+    /// NATS connection URL. Not a secret in our deployments (no inline
+    /// credentials), so kept as a plain `String` for ergonomics.
     pub nats_url: String,
-    pub telegram_bot_token: String,
+    /// Telegram bot token from @BotFather. Anyone with this token can
+    /// impersonate the bot.
+    pub telegram_bot_token: Secret<String>,
     pub telegram_webhook_url: Option<String>,
-    pub football_api_key: String,
+    /// football-data.org API key. Tied to a paid quota — leaking it lets a
+    /// third party drain the quota or get the account suspended.
+    pub football_api_key: Secret<String>,
     pub api_bind_addr: String,
     pub otel_endpoint: Option<String>,
     pub otel_service_namespace: Option<String>,
@@ -31,11 +44,11 @@ impl Config {
     /// the report chain via `attach_with`.
     pub fn from_env() -> SharedResult<Self> {
         Ok(Self {
-            database_url: required("DATABASE_URL")?,
+            database_url: Secret::new(required("DATABASE_URL")?),
             nats_url: required("NATS_URL")?,
-            telegram_bot_token: required("TELEGRAM_BOT_TOKEN")?,
+            telegram_bot_token: Secret::new(required("TELEGRAM_BOT_TOKEN")?),
             telegram_webhook_url: optional("TELEGRAM_WEBHOOK_URL"),
-            football_api_key: required("FOOTBALL_API_KEY")?,
+            football_api_key: Secret::new(required("FOOTBALL_API_KEY")?),
             api_bind_addr: required("API_BIND_ADDR")?,
             otel_endpoint: optional("OTEL_EXPORTER_OTLP_ENDPOINT"),
             otel_service_namespace: optional("OTEL_SERVICE_NAMESPACE"),

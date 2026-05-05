@@ -47,7 +47,6 @@ pub enum HandlerOutcome {
 ///
 /// The exhaustive `match` guarantees the compiler complains the moment a new
 /// `Command` variant is added without a corresponding handler arm.
-#[allow(dead_code)] // wired up by the update loop in feature #1
 pub async fn dispatch(
     state: &crate::app_state::AppState,
     ctx: &CommandContext,

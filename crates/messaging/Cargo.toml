@@ -19,3 +19,4 @@ error-stack = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
 tracing = { workspace = true }
+rust-utils = { workspace = true }

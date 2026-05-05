@@ -8,10 +8,6 @@
 /// All slash commands the bot exposes. Order mirrors the canonical list in
 /// `CLAUDE.md`. Adding a variant forces the dispatcher's `match` to be
 /// updated (exhaustiveness check).
-// Variants are referenced from `dispatch`, which itself is `#[allow(dead_code)]`
-// until the update loop wires it up in feature #1; the lint will fire again
-// the moment a real caller appears.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
     Start,
@@ -34,7 +30,6 @@ impl Command {
     ///
     /// Returns `None` for non-commands, unknown commands, and commands
     /// addressed to a different bot.
-    #[allow(dead_code)] // called from `dispatch` (also stubbed) and from tests
     pub fn parse(text: &str, bot_username: &str) -> Option<Self> {
         // Must start with a slash and have at least one character after it.
         let rest = text.strip_prefix('/')?;

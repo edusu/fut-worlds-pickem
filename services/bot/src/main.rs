@@ -26,11 +26,19 @@ async fn main() -> anyhow::Result<()> {
     info!("bot service starting");
 
     let nats = async_nats::connect(&config.nats_url).await?;
-    let pool = persistence::init_pool(&config.database_url).await?;
-    let telegram = Arc::new(FrankensteinClient::new(&config.telegram_bot_token));
-    let state = AppState::new(pool, telegram);
+    let pool = persistence::init_pool(config.database_url.expose()).await?;
+    // The Telegram client is shared by:
+    //   - `AppState` as `Arc<dyn TelegramClient>` for the trait surface
+    //     (handlers and event consumers eventually call .send_text etc).
+    //   - `update_loop` as `Arc<FrankensteinClient>` so it can reach
+    //     `bot()` for `get_updates` / `get_me`, which sit outside the
+    //     trait surface on purpose (those types are frankenstein-only).
+    // The `Arc::clone` is a refcount bump — both handles point at the
+    // same underlying HTTP client.
+    let telegram = Arc::new(FrankensteinClient::new(config.telegram_bot_token.expose()));
+    let state = AppState::new(pool, telegram.clone());
 
-    let updates = update_loop::run(config.clone(), state.clone());
+    let updates = update_loop::run(config.clone(), state.clone(), telegram);
     let notifier = event_consumers::notify::run(config.clone(), nats.clone());
 
     tokio::try_join!(updates, notifier)?;

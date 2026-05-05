@@ -14,11 +14,11 @@ pub struct AppState {
     pub users: Arc<dyn UserRepository>,
     pub groups: Arc<dyn GroupRepository>,
     pub scoring_rules: Arc<dyn ScoringRuleRepository>,
-    /// Outbound Telegram channel. Today the update loop alone calls it (to
-    /// translate `HandlerOutcome::Reply`); features #4/#7 will let handlers
-    /// send messages with inline buttons / pin chat messages directly via
-    /// this port without going back through the dispatcher.
-    #[allow(dead_code)] // first reader is `update_loop` (still stubbed)
+    /// Outbound Telegram channel. Today the update loop calls it (to
+    /// translate `HandlerOutcome::Reply` into a Telegram message); features
+    /// #4/#7 will let handlers send messages with inline buttons / pin chat
+    /// messages directly via this port without going back through the
+    /// dispatcher.
     pub telegram: Arc<dyn TelegramClient>,
 }
 

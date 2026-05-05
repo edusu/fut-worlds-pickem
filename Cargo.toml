@@ -82,6 +82,12 @@ opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic"] }
 # Config
 figment = { version = "0.10", features = ["toml", "env"] }
 
+# Personal utility crate (concurrency primitives, retry, secrets, …). Pinned
+# to a commit so that pushes to `main` upstream do not silently break the
+# build on the next `cargo update`. Bump the `rev` when a new feature is
+# wanted from there.
+rust-utils = { git = "https://github.com/edusu/rust-utils", rev = "f6da01b4fa4cf96f2a9c219929f5c079aeef5298" }
+
 # Local crates (declared here so services depend by `workspace = true` is not idiomatic;
 # instead each consumer uses `path = "..."`. We keep this list as a directory map only.)
 

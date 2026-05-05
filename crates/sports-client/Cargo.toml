@@ -17,3 +17,4 @@ thiserror = { workspace = true }
 error-stack = { workspace = true }
 chrono = { workspace = true }
 tracing = { workspace = true }
+rust-utils = { workspace = true }

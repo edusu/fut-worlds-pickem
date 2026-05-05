@@ -17,7 +17,7 @@ async fn main() -> anyhow::Result<()> {
     shared::tracing::init("api")?;
     let config = Config::from_env().map_err(shared::report_to_anyhow)?;
 
-    let _pool = persistence::init_pool(&config.database_url).await?;
+    let _pool = persistence::init_pool(config.database_url.expose()).await?;
     let _nats = async_nats::connect(&config.nats_url).await?;
 
     let app: Router = Router::new()

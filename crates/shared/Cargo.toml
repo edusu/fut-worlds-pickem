@@ -20,3 +20,4 @@ opentelemetry = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 figment = { workspace = true }
+rust-utils = { workspace = true }

@@ -10,6 +10,9 @@ use thiserror::Error;
 /// High-level taxonomy of failures from the upstream sports provider.
 #[derive(Debug, Error)]
 pub enum SportsClientError {
+    /// Failed to build the client (e.g. invalid rate-limit window).
+    #[error("client configuration is invalid")]
+    Config,
     /// HTTP transport-level failure (DNS, TCP, TLS, timeout).
     #[error("HTTP transport error")]
     Http,

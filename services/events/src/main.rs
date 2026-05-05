@@ -20,7 +20,7 @@ async fn main() -> anyhow::Result<()> {
     shared::tracing::init("events")?;
     let config = Config::from_env().map_err(shared::report_to_anyhow)?;
 
-    let pool = persistence::init_pool(&config.database_url).await?;
+    let pool = persistence::init_pool(config.database_url.expose()).await?;
     let nats = async_nats::connect(&config.nats_url).await?;
 
     info!("events service starting");

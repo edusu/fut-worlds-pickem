@@ -27,5 +27,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
+error-stack = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
+rust-utils = { workspace = true }
