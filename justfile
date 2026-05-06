@@ -49,6 +49,13 @@ api:
 events:
     cargo run -p events
 
+# Operational CLI for the events service. Pass subcommands after the recipe,
+# e.g. `just events-cli seed-tournament --competition WC --dry-run`
+#       `just events-cli list-matches --competition WC`
+#       `just events-cli list-teams --competition WC`
+events-cli *args:
+    cargo run -q -p events --bin events-cli -- {{args}}
+
 # Run all three services in parallel (foreground; Ctrl+C stops all)
 run-all:
     #!/usr/bin/env bash

@@ -82,6 +82,9 @@ opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic"] }
 # Config
 figment = { version = "0.10", features = ["toml", "env"] }
 
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
 # Personal utility crate (concurrency primitives, retry, secrets, …). Pinned
 # to a commit so that pushes to `main` upstream do not silently break the
 # build on the next `cargo update`. Bump the `rev` when a new feature is

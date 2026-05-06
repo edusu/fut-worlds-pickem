@@ -8,10 +8,7 @@
 //!   3. `scorer` — subscribes to `pickem.match.finished` and writes
 //!      `points_awarded` for every prediction.
 
-mod ingester;
-mod scheduler;
-mod scorer;
-
+use events::{ingester, scheduler, scorer};
 use shared::Config;
 use tracing::info;
 

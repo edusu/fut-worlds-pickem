@@ -8,9 +8,17 @@ authors.workspace = true
 publish.workspace = true
 description = "Sports-data ingester, deadline scheduler, and prediction scorer."
 
+[lib]
+name = "events"
+path = "src/lib.rs"
+
 [[bin]]
 name = "events"
 path = "src/main.rs"
+
+[[bin]]
+name = "events-cli"
+path = "src/bin/events_cli.rs"
 
 [dependencies]
 domain = { path = "../../crates/domain" }
@@ -27,3 +35,7 @@ serde = { workspace = true }
 chrono = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
+error-stack = { workspace = true }
+uuid = { workspace = true }
+clap = { workspace = true }
+rust-utils = { workspace = true }
