@@ -23,7 +23,7 @@ pub enum RepositoryError {
     /// A database integrity constraint was violated (FK, unique, NOT NULL).
     #[error("integrity violation")]
     Integrity,
-    /// The underlying storage backend (Postgres, network) failed.
+    /// The underlying storage backend failed.
     #[error("backend error")]
     Backend,
 }

@@ -12,10 +12,12 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use domain::repository::{RepoResult, RoundRepository};
-use domain::{Phase, RepositoryError, Round, RoundState};
+use domain::{RepositoryError, Round, RoundState};
 use error_stack::{Report, ResultExt};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
+
+use super::mappers::{classify_write_error, phase_from_str, phase_to_str};
 
 /// Postgres-backed `RoundRepository`.
 pub struct PgRoundRepository {
@@ -51,19 +53,7 @@ impl RoundRepository for PgRoundRepository {
         .bind(round.created_at)
         .execute(&self.pool)
         .await
-        .map_err(|e| {
-            let kind = match &e {
-                sqlx::Error::Database(db)
-                    if db.is_foreign_key_violation()
-                        || db.is_unique_violation()
-                        || db.is_check_violation() =>
-                {
-                    RepositoryError::Integrity
-                }
-                _ => RepositoryError::Backend,
-            };
-            Report::new(e).change_context(kind)
-        })?;
+        .map_err(classify_write_error)?;
 
         Ok(())
     }
@@ -212,23 +202,5 @@ fn state_from_str(s: &str) -> RepoResult<RoundState> {
         "scored" => Ok(RoundState::Scored),
         other => Err(Report::new(RepositoryError::Backend)
             .attach(format!("unknown round state in DB: {other}"))),
-    }
-}
-
-fn phase_to_str(phase: Phase) -> &'static str {
-    match phase {
-        Phase::Group => "group",
-        Phase::Knockout => "knockout",
-    }
-}
-
-fn phase_from_str(s: &str) -> RepoResult<Phase> {
-    match s {
-        "group" => Ok(Phase::Group),
-        "knockout" => Ok(Phase::Knockout),
-        other => {
-            Err(Report::new(RepositoryError::Backend)
-                .attach(format!("unknown phase in DB: {other}")))
-        }
     }
 }

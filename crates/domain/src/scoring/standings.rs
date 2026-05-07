@@ -63,7 +63,7 @@ pub fn score_best_thirds(
     let hits = prediction
         .team_ids
         .iter()
-        .filter(|t| actual.contains(*t))
+        .filter(|t| actual.contains(t))
         .count();
     rule.st_best_third_points * hits as i32
 }

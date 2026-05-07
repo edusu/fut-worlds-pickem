@@ -24,11 +24,6 @@ use crate::{Match, Prediction, ScoringRule};
 
 use super::{apply_repick_penalty, ScoringError, ScoringResult};
 
-/// Compare three integers' signs in the {-1, 0, +1} sense.
-fn cmp_sign(a: i32, b: i32) -> i32 {
-    (a - b).signum()
-}
-
 /// Compute the 5-bucket point value for a regulation 90' (or group-stage)
 /// score line, **without** applying the re-pick penalty.
 ///
@@ -43,7 +38,7 @@ pub(crate) fn raw_reg_bucket(
 ) -> i32 {
     let h = predicted_home == actual_home;
     let a = predicted_away == actual_away;
-    let r = cmp_sign(predicted_home, predicted_away) == cmp_sign(actual_home, actual_away);
+    let r = (predicted_home - predicted_away).signum() == (actual_home - actual_away).signum();
 
     match (h, a, r) {
         (true, true, _) => rule.gs_exact_points,

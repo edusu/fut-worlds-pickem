@@ -10,6 +10,7 @@ use thiserror::Error;
 
 /// High-level taxonomy of messaging failures.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum MessagingError {
     /// A NATS publish or subscribe operation failed.
     #[error("NATS operation failed")]

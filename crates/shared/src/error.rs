@@ -10,16 +10,11 @@ use thiserror::Error;
 /// `error_stack::ResultExt::attach_with` instead of being embedded
 /// in the variants.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum SharedError {
     /// A required configuration value was missing or empty.
     #[error("missing required config value")]
     MissingConfig,
-    /// A configuration value was present but failed validation.
-    #[error("invalid config value")]
-    InvalidConfig,
-    /// A local I/O operation failed.
-    #[error("io error")]
-    Io,
 }
 
 /// Convenience alias for a fully-formed report of a shared error.

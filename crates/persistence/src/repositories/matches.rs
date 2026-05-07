@@ -11,10 +11,12 @@
 
 use async_trait::async_trait;
 use domain::repository::{MatchRepository, RepoResult};
-use domain::{Match, MatchStatus, Phase, RepositoryError};
+use domain::{Match, MatchStatus, RepositoryError};
 use error_stack::{Report, ResultExt};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
+
+use super::mappers::{classify_write_error, phase_from_str, phase_to_str};
 
 /// Postgres-backed `MatchRepository`.
 pub struct PgMatchRepository {
@@ -91,19 +93,7 @@ impl MatchRepository for PgMatchRepository {
         .bind(phase_to_str(match_.phase))
         .execute(&self.pool)
         .await
-        .map_err(|e| {
-            let kind = match &e {
-                sqlx::Error::Database(db)
-                    if db.is_foreign_key_violation()
-                        || db.is_check_violation()
-                        || db.is_unique_violation() =>
-                {
-                    RepositoryError::Integrity
-                }
-                _ => RepositoryError::Backend,
-            };
-            Report::new(e).change_context(kind)
-        })?;
+        .map_err(classify_write_error)?;
 
         Ok(())
     }
@@ -233,23 +223,5 @@ fn status_from_str(s: &str) -> RepoResult<MatchStatus> {
         "cancelled" => Ok(MatchStatus::Cancelled),
         other => Err(Report::new(RepositoryError::Backend)
             .attach(format!("unknown match status in DB: {other}"))),
-    }
-}
-
-fn phase_to_str(phase: Phase) -> &'static str {
-    match phase {
-        Phase::Group => "group",
-        Phase::Knockout => "knockout",
-    }
-}
-
-fn phase_from_str(s: &str) -> RepoResult<Phase> {
-    match s {
-        "group" => Ok(Phase::Group),
-        "knockout" => Ok(Phase::Knockout),
-        other => {
-            Err(Report::new(RepositoryError::Backend)
-                .attach(format!("unknown phase in DB: {other}")))
-        }
     }
 }

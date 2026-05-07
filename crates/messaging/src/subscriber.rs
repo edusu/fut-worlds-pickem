@@ -2,6 +2,7 @@ use async_nats::Subscriber as NatsSubscriber;
 use error_stack::ResultExt;
 use rust_utils::network::validate_and_parse_json;
 use serde::de::DeserializeOwned;
+use tokio_stream::StreamExt;
 use tracing::warn;
 
 use crate::{MessagingError, MessagingResult};
@@ -54,7 +55,7 @@ where
     /// failures are logged and the stream advances.
     pub async fn next(&mut self) -> Option<T> {
         loop {
-            let msg = futures_next(&mut self.inner).await?;
+            let msg = self.inner.next().await?;
             match validate_and_parse_json::<T>(&msg.payload, MAX_PAYLOAD_BYTES, MAX_JSON_DEPTH) {
                 Ok(value) => return Some(value),
                 Err(report) => {
@@ -68,12 +69,4 @@ where
             }
         }
     }
-}
-
-/// Internal helper that adapts `async_nats::Subscriber`'s stream API to a
-/// simple `async fn`. Kept private so call sites do not need to import
-/// `futures::StreamExt`.
-async fn futures_next(sub: &mut NatsSubscriber) -> Option<async_nats::Message> {
-    use tokio_stream::StreamExt;
-    sub.next().await
 }

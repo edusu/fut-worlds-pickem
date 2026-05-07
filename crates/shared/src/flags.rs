@@ -116,8 +116,10 @@ fn fifa3_to_iso2(code: &str) -> Option<&'static str> {
         "UKR" => "UA",
         "SRB" => "RS",
         "CZE" => "CZ",
-        "WAL" => "GB",
-        "SCO" => "GB",
+        // WAL / SCO have no ISO 3166-1 alpha-2 code; mapping them to "GB"
+        // would render the Union Jack and mislabel them. Falling through to
+        // the placeholder is the lesser evil until a subdivision-flag emoji
+        // helper (RGI flag-tag sequences) is added.
         "IRL" => "IE",
         "HUN" => "HU",
         "GRE" => "GR",

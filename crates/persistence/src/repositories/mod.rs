@@ -3,6 +3,7 @@
 //! can be shared across many repositories within a service.
 
 pub mod groups;
+mod mappers;
 pub mod matches;
 pub mod predictions;
 pub mod rounds;

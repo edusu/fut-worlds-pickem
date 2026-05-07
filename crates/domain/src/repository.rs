@@ -8,8 +8,6 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-// Re-exported so the historical `domain::repository::RepoResult` import path
-// keeps compiling. The canonical home is `crate::error`.
 pub use crate::error::RepoResult;
 
 use crate::{

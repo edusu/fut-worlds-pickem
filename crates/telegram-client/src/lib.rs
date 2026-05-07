@@ -102,8 +102,8 @@ impl TelegramClient for FrankensteinClient {
         _text: &str,
         _buttons: &[Vec<Button>],
     ) -> TelegramResult<()> {
-        // TODO: convert `buttons` to InlineKeyboardMarkup and send.
-        todo!("FrankensteinClient::send_text_with_buttons")
+        Err(error_stack::Report::new(TelegramError::Api)
+            .attach("FrankensteinClient::send_text_with_buttons not implemented"))
     }
 
     async fn answer_callback_query(
@@ -111,10 +111,12 @@ impl TelegramClient for FrankensteinClient {
         _callback_query_id: &str,
         _text: Option<&str>,
     ) -> TelegramResult<()> {
-        todo!("FrankensteinClient::answer_callback_query")
+        Err(error_stack::Report::new(TelegramError::Api)
+            .attach("FrankensteinClient::answer_callback_query not implemented"))
     }
 
     async fn set_webhook(&self, _url: &str) -> TelegramResult<()> {
-        todo!("FrankensteinClient::set_webhook")
+        Err(error_stack::Report::new(TelegramError::Api)
+            .attach("FrankensteinClient::set_webhook not implemented"))
     }
 }
