@@ -1,5 +1,8 @@
-# Development dependencies only — Postgres, NATS, and Jaeger.
-# Run the Rust services and the Mini App on the host (`just bot|api|events|front`).
+# Local infra dependencies — Postgres, NATS (JetStream), and Jaeger.
+# This is the canonical "what you need to bring up" file: start it with
+# `just dev-up`, then run the Rust services and the Mini App on the host
+# (`just bot|api|events|front`). For an all-in-container variant (services +
+# Mini App included), see the sibling `docker-compose.full.yml`.
 
 services:
   postgres:
