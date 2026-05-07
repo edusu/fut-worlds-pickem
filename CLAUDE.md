@@ -261,7 +261,10 @@ variant, and only then add scheduler jobs that publish the timed templates.
   `services/api/src/middleware/auth.rs`.
 - `frontend/miniapp/` is intentionally NOT a Cargo workspace member — the
   workspace `members` glob excludes the `frontend/` directory.
-- `docker-compose.yml` extends services from `docker-compose.dev.yml` rather
-  than duplicating them; edit dev first, full picks it up.
+- All compose files live in `infra/`. `infra/docker-compose.yml` is the
+  deps-only file (Postgres + NATS + Jaeger) used by `just dev-up`.
+  `infra/docker-compose.full.yml` extends from it and adds the three Rust
+  services + the Mini App for E2E/staging — edit the deps file first, full
+  picks the changes up via `extends`.
 - Service Dockerfiles use `cargo-chef` for dependency caching, so source-only
   changes don't redownload crates.io packages.

@@ -83,8 +83,9 @@ React Mini App is a separate package outside the workspace (polyglot monorepo).
 fut-worlds-pickem/
 ├── Cargo.toml                 # Workspace root
 ├── justfile                   # Common dev commands
-├── docker-compose.dev.yml     # Postgres + NATS + Jaeger only
-├── docker-compose.yml         # Full stack (services included)
+├── infra/
+│   ├── docker-compose.yml      # Postgres + NATS + Jaeger (deps only)
+│   └── docker-compose.full.yml # Full stack: deps + services + Mini App
 ├── migrations/                # SQL migrations (numeric prefix order)
 ├── crates/
 │   ├── domain/                # Pure types + repository traits

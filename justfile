@@ -11,15 +11,15 @@ default:
 
 # Bring up the development dependencies
 dev-up:
-    docker compose -f docker-compose.dev.yml up -d
+    docker compose -f infra/docker-compose.yml up -d
 
 # Tear down the development dependencies
 dev-down:
-    docker compose -f docker-compose.dev.yml down
+    docker compose -f infra/docker-compose.yml down
 
 # Tail logs of all dev services
 dev-logs:
-    docker compose -f docker-compose.dev.yml logs -f
+    docker compose -f infra/docker-compose.yml logs -f
 
 # --- Database migrations ------------------------------------------------------
 
