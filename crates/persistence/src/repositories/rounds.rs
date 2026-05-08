@@ -145,11 +145,7 @@ impl PgRoundRepository {
     /// Look a round up by `(tournament_id, name)` — the natural key under
     /// which the bootstrap creates rounds idempotently. The matching UNIQUE
     /// is enforced in migration `0002`.
-    pub async fn find_by_name(
-        &self,
-        tournament_id: Uuid,
-        name: &str,
-    ) -> RepoResult<Option<Round>> {
+    pub async fn find_by_name(&self, tournament_id: Uuid, name: &str) -> RepoResult<Option<Round>> {
         let row = sqlx::query(
             r#"
             SELECT id, tournament_id, name, deadline_at, state, phase, created_at
