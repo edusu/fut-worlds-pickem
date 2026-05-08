@@ -10,6 +10,7 @@ pub mod rounds;
 pub mod scoring_rules;
 pub mod teams;
 pub mod tournament_groups;
+pub mod tournaments;
 pub mod users;
 
 pub use groups::PgGroupRepository;
@@ -19,4 +20,5 @@ pub use rounds::PgRoundRepository;
 pub use scoring_rules::PgScoringRuleRepository;
 pub use teams::PgTeamRepository;
 pub use tournament_groups::PgTournamentGroupRepository;
+pub use tournaments::PgTournamentRepository;
 pub use users::PgUserRepository;

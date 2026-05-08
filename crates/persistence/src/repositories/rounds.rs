@@ -1,9 +1,8 @@
 //! Postgres-backed `RoundRepository`.
 //!
-//! Owned by `services/events`: only the events service writes rounds (when
-//! a pickem is created the bot also calls in to seed the initial round, but
-//! the writes go through this same repo). The api and the bot may READ to
-//! list active rounds.
+//! Owned by `services/events`: only the events service writes rounds (the
+//! ingester bootstrap creates them once per tournament). The api and the bot
+//! may READ to list active rounds.
 //!
 //! The `state` and `phase` columns are stored as plain TEXT with explicit
 //! string values so a `psql` operator can grep them; the conversion happens
@@ -33,19 +32,17 @@ impl PgRoundRepository {
 #[async_trait]
 impl RoundRepository for PgRoundRepository {
     /// Insert a new round. Surfaces `RepositoryError::Integrity` if the
-    /// `group_id` foreign key does not point at an existing pickem (the bot
-    /// is the only legitimate source of `group_id`s, but routing this back
-    /// as `Integrity` lets the api distinguish a stale id from infra
-    /// failures).
+    /// `tournament_id` foreign key does not point at an existing tournament,
+    /// or if a `(tournament_id, name)` collision is hit.
     async fn create(&self, round: &Round) -> RepoResult<()> {
         sqlx::query(
             r#"
-            INSERT INTO rounds (id, group_id, name, deadline_at, state, phase, created_at)
+            INSERT INTO rounds (id, tournament_id, name, deadline_at, state, phase, created_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,
         )
         .bind(round.id)
-        .bind(round.group_id)
+        .bind(round.tournament_id)
         .bind(&round.name)
         .bind(round.deadline_at)
         .bind(state_to_str(round.state))
@@ -58,22 +55,22 @@ impl RoundRepository for PgRoundRepository {
         Ok(())
     }
 
-    /// Rounds belonging to a pickem that are currently accepting predictions.
-    /// "Active" = state is `open` AND the deadline has not passed yet — both
-    /// conditions matter because the api enforces deadline at write time
-    /// (no scheduler flips the row to `closed` in v1).
-    async fn list_active(&self, group_id: Uuid) -> RepoResult<Vec<Round>> {
+    /// Rounds of a tournament currently accepting predictions. "Active" =
+    /// state is `open` AND the deadline has not passed yet — both matter
+    /// because the api enforces deadline at write time (no scheduler flips
+    /// the row to `closed` in v1).
+    async fn list_active(&self, tournament_id: Uuid) -> RepoResult<Vec<Round>> {
         let rows = sqlx::query(
             r#"
-            SELECT id, group_id, name, deadline_at, state, phase, created_at
+            SELECT id, tournament_id, name, deadline_at, state, phase, created_at
             FROM rounds
-            WHERE group_id = $1
+            WHERE tournament_id = $1
               AND state = 'open'
               AND deadline_at > now()
             ORDER BY deadline_at ASC
             "#,
         )
-        .bind(group_id)
+        .bind(tournament_id)
         .fetch_all(&self.pool)
         .await
         .change_context(RepositoryError::Backend)?;
@@ -111,7 +108,7 @@ impl RoundRepository for PgRoundRepository {
     async fn list_due_for_close(&self, before: DateTime<Utc>) -> RepoResult<Vec<Round>> {
         let rows = sqlx::query(
             r#"
-            SELECT id, group_id, name, deadline_at, state, phase, created_at
+            SELECT id, tournament_id, name, deadline_at, state, phase, created_at
             FROM rounds
             WHERE state = 'open'
               AND deadline_at <= $1
@@ -132,7 +129,7 @@ impl PgRoundRepository {
     pub async fn find(&self, id: Uuid) -> RepoResult<Option<Round>> {
         let row = sqlx::query(
             r#"
-            SELECT id, group_id, name, deadline_at, state, phase, created_at
+            SELECT id, tournament_id, name, deadline_at, state, phase, created_at
             FROM rounds
             WHERE id = $1
             "#,
@@ -145,19 +142,22 @@ impl PgRoundRepository {
         row.map(row_to_round).transpose()
     }
 
-    /// Look a round up by `(group_id, name)` — useful for the bot/CLI
-    /// "create round if not exists" pattern, since `name` is what humans
-    /// type ("Group stage 2026", "Knockouts 2026") and the schema does not
-    /// have a UNIQUE on it.
-    pub async fn find_by_name(&self, group_id: Uuid, name: &str) -> RepoResult<Option<Round>> {
+    /// Look a round up by `(tournament_id, name)` — the natural key under
+    /// which the bootstrap creates rounds idempotently. The matching UNIQUE
+    /// is enforced in migration `0002`.
+    pub async fn find_by_name(
+        &self,
+        tournament_id: Uuid,
+        name: &str,
+    ) -> RepoResult<Option<Round>> {
         let row = sqlx::query(
             r#"
-            SELECT id, group_id, name, deadline_at, state, phase, created_at
+            SELECT id, tournament_id, name, deadline_at, state, phase, created_at
             FROM rounds
-            WHERE group_id = $1 AND name = $2
+            WHERE tournament_id = $1 AND name = $2
             "#,
         )
-        .bind(group_id)
+        .bind(tournament_id)
         .bind(name)
         .fetch_optional(&self.pool)
         .await
@@ -176,7 +176,7 @@ fn row_to_round(row: sqlx::postgres::PgRow) -> RepoResult<Round> {
     let phase_raw: String = row.get("phase");
     Ok(Round {
         id: row.get("id"),
-        group_id: row.get("group_id"),
+        tournament_id: row.get("tournament_id"),
         name: row.get("name"),
         deadline_at: row.get("deadline_at"),
         state: state_from_str(&state_raw)?,

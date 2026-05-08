@@ -14,10 +14,15 @@ pub enum RoundState {
 }
 
 /// A round groups one or more matches under a single submission deadline.
+///
+/// Rounds belong to a tournament, not to a Telegram pickem — every pickem
+/// shares the same set of rounds for a given competition. Pickem-specific
+/// state (members, scoring rule) lives on `Group`; tournament-wide state
+/// (deadlines, phase progression) lives here.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Round {
     pub id: Uuid,
-    pub group_id: Uuid,
+    pub tournament_id: Uuid,
     pub name: String,
     pub deadline_at: DateTime<Utc>,
     pub state: RoundState,

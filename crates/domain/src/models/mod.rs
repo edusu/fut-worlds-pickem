@@ -8,6 +8,7 @@ mod round;
 mod scoring_rule;
 mod standings_prediction;
 mod team;
+mod tournament;
 mod tournament_group;
 mod user;
 
@@ -19,5 +20,6 @@ pub use round::*;
 pub use scoring_rule::*;
 pub use standings_prediction::*;
 pub use team::*;
+pub use tournament::*;
 pub use tournament_group::*;
 pub use user::*;

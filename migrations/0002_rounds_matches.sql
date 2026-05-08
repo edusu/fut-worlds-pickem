@@ -1,16 +1,34 @@
 -- Owner: services/events
--- Tables: rounds, matches
+-- Tables: tournaments, rounds, matches
 -- The events service ingests fixtures from the upstream provider and creates
--- rounds + matches. The bot may READ to list active rounds; the api may READ
--- to render fixtures in the Mini App.
+-- rounds + matches under a parent tournament. The bot may READ to list active
+-- rounds; the api may READ to render fixtures in the Mini App.
 
-CREATE TABLE rounds (
+-- A tournament is the top-level competition we ingest fixtures for, e.g.
+-- "World Cup 2026". `external_id` is the upstream provider's competition
+-- code (football-data.org uses "WC", "CL", ...) and is the natural key the
+-- ingester uses to look the row up at boot. v1 only ever seeds a single
+-- tournament, but the table is shaped to grow into multiple.
+CREATE TABLE tournaments (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    group_id     UUID NOT NULL REFERENCES groups(id),
     name         TEXT NOT NULL,
-    deadline_at  TIMESTAMPTZ NOT NULL,
-    state        TEXT NOT NULL DEFAULT 'open',
+    external_id  TEXT NOT NULL UNIQUE,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- A round groups one or more matches under a single submission deadline.
+-- Rounds belong to a tournament, not to a Telegram pickem: every pickem in
+-- the system shares the same set of rounds for a given tournament. The
+-- `(tournament_id, name)` UNIQUE pair makes "Group stage 2026" / "Knockouts
+-- 2026" idempotent at the DB level so the bootstrap can re-run safely.
+CREATE TABLE rounds (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tournament_id UUID NOT NULL REFERENCES tournaments(id),
+    name          TEXT NOT NULL,
+    deadline_at   TIMESTAMPTZ NOT NULL,
+    state         TEXT NOT NULL DEFAULT 'open',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (tournament_id, name)
 );
 
 CREATE TABLE matches (

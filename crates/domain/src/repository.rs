@@ -12,7 +12,7 @@ pub use crate::error::RepoResult;
 
 use crate::{
     BestThirdsPrediction, Group, GroupMember, GroupStandingsPrediction, Match, Prediction, Round,
-    RoundState, ScoringRule, Team, TelegramChatId, TelegramUserId, TournamentGroup,
+    RoundState, ScoringRule, Team, TelegramChatId, TelegramUserId, Tournament, TournamentGroup,
     TournamentGroupAssignment, User,
 };
 
@@ -46,9 +46,25 @@ pub trait GroupRepository: Send + Sync {
 #[async_trait]
 pub trait RoundRepository: Send + Sync {
     async fn create(&self, round: &Round) -> RepoResult<()>;
-    async fn list_active(&self, group_id: Uuid) -> RepoResult<Vec<Round>>;
+    /// Rounds of a tournament currently accepting predictions: state `open`
+    /// and deadline still in the future. The deadline check matters because
+    /// the api enforces it at write time (no scheduler flips rows to
+    /// `closed` in v1).
+    async fn list_active(&self, tournament_id: Uuid) -> RepoResult<Vec<Round>>;
     async fn set_state(&self, round_id: Uuid, state: RoundState) -> RepoResult<()>;
     async fn list_due_for_close(&self, before: DateTime<Utc>) -> RepoResult<Vec<Round>>;
+}
+
+#[async_trait]
+pub trait TournamentRepository: Send + Sync {
+    /// Insert or refresh a tournament by `external_id`. The ingester calls
+    /// this on first boot to seed e.g. the World Cup 2026 row before any
+    /// rounds or matches exist.
+    async fn upsert(&self, tournament: &Tournament) -> RepoResult<()>;
+    async fn find(&self, id: Uuid) -> RepoResult<Option<Tournament>>;
+    /// Look a tournament up by its upstream code, e.g. `"WC"`. Used by the
+    /// bootstrap to translate "the v1 tournament" into a UUID.
+    async fn find_by_external_id(&self, external_id: &str) -> RepoResult<Option<Tournament>>;
 }
 
 #[async_trait]
