@@ -31,34 +31,28 @@ pub const V1_TOURNAMENT_EXTERNAL_ID: &str = "WC";
 /// `V1_TOURNAMENT_EXTERNAL_ID` is purely internal and never user-facing.
 pub const V1_TOURNAMENT_NAME: &str = "Mundial 2026";
 
-/// Display name of the group-stage round. Same trademark-avoidance reasoning
-/// as `V1_TOURNAMENT_NAME` — the Spanish form does not carry FIFA marks.
+/// Display name of the group-stage round. Spanish form, see
+/// `V1_TOURNAMENT_NAME`.
 pub const ROUND_GROUP_STAGE_NAME: &str = "Fase de grupos 2026";
 
-/// Display name of the knockout round. Single round for v1 even though the
-/// 2026 World Cup has multiple knockout stages (Round of 32, R16, QF, SF,
-/// Final): the round is the *deadline boundary*, not the bracket level. One
-/// deadline anchored at the first knockout kickoff is enough.
+/// Display name of the knockout round. Spanish form, see
+/// `V1_TOURNAMENT_NAME`.
 pub const ROUND_KNOCKOUTS_NAME: &str = "Eliminatorias 2026";
 
-/// Make sure the v1 tournament row exists, returning the canonical
-/// `Tournament` value other bootstrap steps need to anchor their writes
-/// (`rounds.tournament_id`, etc.).
-///
-/// Looks the row up by its `external_id` first to avoid an unnecessary
-/// write on subsequent boots. Falls back to `upsert` when the row is
-/// missing — using `upsert` rather than `create` means a concurrent boot
-/// that wrote the row between our `find` and `upsert` does not error out;
-/// the second writer simply rewrites the same `name` onto the existing row.
+/// Make sure a tournament row with the given `external_id` exists and
+/// return the canonical `Tournament`. Idempotent: a fast-path read avoids
+/// the upsert + re-read on subsequent boots.
 #[instrument(skip(repo))]
-pub async fn ensure_tournament(repo: &PgTournamentRepository) -> anyhow::Result<Tournament> {
+pub async fn ensure_tournament(
+    repo: &PgTournamentRepository,
+    external_id: &str,
+    name: &str,
+) -> anyhow::Result<Tournament> {
     if let Some(existing) = repo
-        .find_by_external_id(V1_TOURNAMENT_EXTERNAL_ID)
+        .find_by_external_id(external_id)
         .await
         .map_err(shared::report_to_anyhow)
-        .with_context(|| {
-            format!("looking up tournament by external_id={V1_TOURNAMENT_EXTERNAL_ID}")
-        })?
+        .with_context(|| format!("looking up tournament by external_id={external_id}"))?
     {
         info!(
             tournament_id = %existing.id,
@@ -70,26 +64,23 @@ pub async fn ensure_tournament(repo: &PgTournamentRepository) -> anyhow::Result<
 
     let tournament = Tournament {
         id: Uuid::new_v4(),
-        name: V1_TOURNAMENT_NAME.to_string(),
-        external_id: V1_TOURNAMENT_EXTERNAL_ID.to_string(),
+        name: name.to_string(),
+        external_id: external_id.to_string(),
         created_at: Utc::now(),
     };
     repo.upsert(&tournament)
         .await
         .map_err(shared::report_to_anyhow)
-        .with_context(|| format!("seeding tournament external_id={V1_TOURNAMENT_EXTERNAL_ID}"))?;
+        .with_context(|| format!("seeding tournament external_id={external_id}"))?;
 
-    // Re-read so we return the row Postgres actually persisted, in case a
-    // concurrent writer raced us to the INSERT and we want their `id`. The
-    // ON CONFLICT in `upsert` keeps the original PK on conflict, so reading
-    // back is the only way to surface the canonical UUID downstream.
+    // Re-read after upsert: ON CONFLICT preserves the original PK, so this
+    // is the only way to surface the canonical UUID when a concurrent
+    // writer raced us.
     let canonical = repo
-        .find_by_external_id(V1_TOURNAMENT_EXTERNAL_ID)
+        .find_by_external_id(external_id)
         .await
         .map_err(shared::report_to_anyhow)
-        .with_context(|| {
-            format!("re-reading tournament after upsert external_id={V1_TOURNAMENT_EXTERNAL_ID}")
-        })?
+        .with_context(|| format!("re-reading tournament after upsert external_id={external_id}"))?
         .context("tournament row missing immediately after upsert")?;
 
     info!(
@@ -126,16 +117,22 @@ pub async fn ensure_global_rounds(
     round_repo: &PgRoundRepository,
     tournament: &Tournament,
 ) -> anyhow::Result<GlobalRounds> {
-    let existing_group = round_repo
-        .find_by_name(tournament.id, ROUND_GROUP_STAGE_NAME)
-        .await
-        .map_err(shared::report_to_anyhow)
-        .context("looking up group-stage round")?;
-    let existing_knockouts = round_repo
-        .find_by_name(tournament.id, ROUND_KNOCKOUTS_NAME)
-        .await
-        .map_err(shared::report_to_anyhow)
-        .context("looking up knockouts round")?;
+    let (existing_group, existing_knockouts) = tokio::try_join!(
+        async {
+            round_repo
+                .find_by_name(tournament.id, ROUND_GROUP_STAGE_NAME)
+                .await
+                .map_err(shared::report_to_anyhow)
+                .context("looking up group-stage round")
+        },
+        async {
+            round_repo
+                .find_by_name(tournament.id, ROUND_KNOCKOUTS_NAME)
+                .await
+                .map_err(shared::report_to_anyhow)
+                .context("looking up knockouts round")
+        }
+    )?;
 
     if let (Some(group_stage), Some(knockouts)) = (&existing_group, &existing_knockouts) {
         info!(
@@ -149,10 +146,9 @@ pub async fn ensure_global_rounds(
         });
     }
 
-    // At least one round is missing — pay for a single upstream fetch. The
-    // alternative ("fetch only when both missing") is brittle: if a previous
-    // boot crashed between the two creates, we would never recover the
-    // missing one without an upstream call anyway.
+    // Always fetch when at least one round is missing: a previous boot may
+    // have crashed mid-create, leaving a half-state we cannot reconstruct
+    // without an upstream call.
     let resp = client
         .get_competition_matches(&tournament.external_id)
         .await
@@ -173,22 +169,15 @@ pub async fn ensure_global_rounds(
             let deadline = group_first.context(
                 "no group-stage matches in upstream feed — cannot derive group-stage deadline",
             )?;
-            let round = Round {
-                id: Uuid::new_v4(),
-                tournament_id: tournament.id,
-                name: ROUND_GROUP_STAGE_NAME.to_string(),
-                deadline_at: deadline,
-                state: RoundState::Open,
-                phase: Phase::Group,
-                created_at: now,
-            };
-            round_repo
-                .create(&round)
-                .await
-                .map_err(shared::report_to_anyhow)
-                .context("creating group-stage round")?;
-            info!(round_id = %round.id, deadline = %round.deadline_at, "group-stage round created");
-            round
+            create_round(
+                round_repo,
+                tournament.id,
+                ROUND_GROUP_STAGE_NAME,
+                deadline,
+                Phase::Group,
+                now,
+            )
+            .await?
         }
     };
 
@@ -198,22 +187,15 @@ pub async fn ensure_global_rounds(
             let deadline = knockout_first.context(
                 "no knockout matches in upstream feed — cannot derive knockouts deadline",
             )?;
-            let round = Round {
-                id: Uuid::new_v4(),
-                tournament_id: tournament.id,
-                name: ROUND_KNOCKOUTS_NAME.to_string(),
-                deadline_at: deadline,
-                state: RoundState::Open,
-                phase: Phase::Knockout,
-                created_at: now,
-            };
-            round_repo
-                .create(&round)
-                .await
-                .map_err(shared::report_to_anyhow)
-                .context("creating knockouts round")?;
-            info!(round_id = %round.id, deadline = %round.deadline_at, "knockouts round created");
-            round
+            create_round(
+                round_repo,
+                tournament.id,
+                ROUND_KNOCKOUTS_NAME,
+                deadline,
+                Phase::Knockout,
+                now,
+            )
+            .await?
         }
     };
 
@@ -221,6 +203,31 @@ pub async fn ensure_global_rounds(
         group_stage,
         knockouts,
     })
+}
+
+async fn create_round(
+    repo: &PgRoundRepository,
+    tournament_id: Uuid,
+    name: &str,
+    deadline_at: DateTime<Utc>,
+    phase: Phase,
+    created_at: DateTime<Utc>,
+) -> anyhow::Result<Round> {
+    let round = Round {
+        id: Uuid::new_v4(),
+        tournament_id,
+        name: name.to_string(),
+        deadline_at,
+        state: RoundState::Open,
+        phase,
+        created_at,
+    };
+    repo.create(&round)
+        .await
+        .map_err(shared::report_to_anyhow)
+        .with_context(|| format!("creating round name={name}"))?;
+    info!(round_id = %round.id, name = %round.name, deadline = %round.deadline_at, "round created");
+    Ok(round)
 }
 
 /// Walk a fixture list once and return the earliest kickoff for the group
@@ -256,9 +263,6 @@ mod tests {
     use super::*;
     use sports_client::{MatchStatusDto, TeamRefDto};
 
-    /// Convenience: build a minimum-viable `MatchDto` for unit tests. Only
-    /// the fields `first_kickoffs_per_phase` actually reads (`utc_date`,
-    /// `stage`) carry meaning; everything else is filler.
     fn fixture(utc_date: &str, stage: Option<&str>) -> MatchDto {
         MatchDto {
             id: 0,

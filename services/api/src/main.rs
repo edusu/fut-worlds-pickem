@@ -14,8 +14,12 @@ use tracing::info;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    shared::tracing::init("api")?;
     let config = Config::from_env().map_err(shared::report_to_anyhow)?;
+    let _tracing_guard = shared::tracing::init(
+        "api",
+        config.otel_endpoint.as_deref(),
+        config.otel_service_namespace.as_deref(),
+    )?;
 
     let _pool = persistence::init_pool(config.database_url.expose()).await?;
     let _nats = async_nats::connect(&config.nats_url).await?;

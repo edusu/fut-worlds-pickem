@@ -29,8 +29,12 @@ const RATE_LIMIT_CLEANUP_INTERVAL: Duration = Duration::from_secs(300);
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    shared::tracing::init("bot")?;
     let config = Config::from_env().map_err(shared::report_to_anyhow)?;
+    let _tracing_guard = shared::tracing::init(
+        "bot",
+        config.otel_endpoint.as_deref(),
+        config.otel_service_namespace.as_deref(),
+    )?;
 
     info!("bot service starting");
 

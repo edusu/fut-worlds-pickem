@@ -24,13 +24,19 @@ use domain::{
     repository::{TeamRepository, TournamentGroupRepository},
     Team, TournamentGroup, TournamentGroupAssignment,
 };
+use events::ingester::bootstrap::{
+    ensure_global_rounds, ensure_tournament, V1_TOURNAMENT_EXTERNAL_ID, V1_TOURNAMENT_NAME,
+};
 use events::ingester::football_data::{
     flag_emoji_for_team, group_assignments_from_matches, group_label_from_upstream,
     phase_from_stage, team_country_code,
 };
 use persistence::{
     init_pool,
-    repositories::{teams::PgTeamRepository, tournament_groups::PgTournamentGroupRepository},
+    repositories::{
+        rounds::PgRoundRepository, teams::PgTeamRepository,
+        tournament_groups::PgTournamentGroupRepository, tournaments::PgTournamentRepository,
+    },
 };
 use rust_utils::secret::Secret;
 use shared::Config;
@@ -86,8 +92,12 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    shared::tracing::init("events-cli")?;
     let config = Config::from_env().map_err(shared::report_to_anyhow)?;
+    let _tracing_guard = shared::tracing::init(
+        "events-cli",
+        config.otel_endpoint.as_deref(),
+        config.otel_service_namespace.as_deref(),
+    )?;
     let cli = Cli::parse();
 
     match cli.command {
@@ -261,7 +271,34 @@ async fn seed_tournament(config: &Config, competition: &str, dry_run: bool) -> a
     let pool = init_pool(config.database_url.expose())
         .await
         .context("connecting to Postgres")?;
+    let tournament_repo = PgTournamentRepository::new(pool.clone());
+    let round_repo = PgRoundRepository::new(pool.clone());
     let team_repo = PgTeamRepository::new(pool.clone());
+
+    // Step 0 — seed the tournament row so subsequent FKs (rounds.tournament_id)
+    // can resolve. The display name only matters for human-facing tooling;
+    // for the v1 competition (WC) we use the trademark-safe Spanish form,
+    // for any other we fall back to the upstream code itself.
+    let tournament_name = if competition == V1_TOURNAMENT_EXTERNAL_ID {
+        V1_TOURNAMENT_NAME.to_string()
+    } else {
+        competition.to_string()
+    };
+    let tournament = ensure_tournament(&tournament_repo, competition, &tournament_name).await?;
+
+    // Step 0.b — seed the global rounds. v1 hardcodes the round naming
+    // ("Fase de grupos 2026" / "Eliminatorias 2026") for WC; for any other
+    // competition we leave rounds for the daemon to handle (#9 will
+    // generalise this when we support more tournaments).
+    if competition == V1_TOURNAMENT_EXTERNAL_ID {
+        let client_for_rounds = build_client(config)?;
+        ensure_global_rounds(&client_for_rounds, &round_repo, &tournament).await?;
+    } else {
+        info!(
+            competition,
+            "skipping global rounds seed (only WC supported in v1)"
+        );
+    }
     let group_repo = PgTournamentGroupRepository::new(pool.clone());
 
     // Step 1 — upsert every team so we can resolve country_code → UUID later.

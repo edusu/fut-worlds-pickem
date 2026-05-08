@@ -1,32 +1,21 @@
-//! Single iteration of the periodic ingestion loop.
+//! Single iteration of the periodic ingestion loop. `poll_once` is one
+//! one-pass tick (no internal sleeps), so the driver in `mod.rs` can pace
+//! cadence cleanly and an operational CLI can invoke a tick on demand.
 //!
-//! `poll_once` is the steady-state body the long-running ingester invokes
-//! every 5 minutes. It is intentionally a *one-pass* function — no internal
-//! sleeps, no background tasks — so the surrounding driver can drive its
-//! cadence cleanly via `tokio::time::interval` and so an operational CLI
-//! can invoke a single tick on demand.
-//!
-//! Side effects in dependency order:
-//!   1. Pull the full fixture list from the upstream provider.
-//!   2. Load every team into a `country_code → uuid` map (one query) so
-//!      `dto_to_match`'s pens-winner resolver runs in memory.
-//!   3. For each fixture: read prior state, upsert, and emit
-//!      `MatchFinished::V1` exactly once per `→ finished` transition.
-//!
-//! Per-match failures (one bad DTO) are logged and skipped so a single
-//! corrupt row never aborts the whole tick.
+//! Per-match failures are logged and skipped so a single corrupt DTO never
+//! aborts the whole tick.
 
 use std::collections::HashMap;
 
 use anyhow::Context;
 use chrono::Utc;
-use domain::repository::{MatchRepository, TeamRepository};
+use domain::repository::MatchRepository;
 use domain::{Match, MatchStatus, Phase, Team, Tournament};
 use messaging::{
     events::{MatchFinished, MatchFinishedV1},
     topics, Publisher,
 };
-use persistence::repositories::{PgMatchRepository, PgTeamRepository};
+use persistence::repositories::PgMatchRepository;
 use sports_client::{Client as SportsClient, MatchDto};
 use tracing::{instrument, warn};
 use uuid::Uuid;
@@ -35,57 +24,39 @@ use super::bootstrap::GlobalRounds;
 use super::football_data::{dto_to_match, phase_from_stage};
 
 /// Aggregate snapshot of one ingestion tick. Returned to the driver so it
-/// can adapt the polling cadence — in particular, switch to fast mode while
-/// `live_count > 0` — without issuing a separate "is anything live" query
-/// against Postgres. Producer-side data is always cheaper than asking again.
+/// can adapt the polling cadence (fast while `live_count > 0`, slow
+/// otherwise) without issuing a separate "is anything live" query.
 #[derive(Debug, Clone, Copy)]
 pub struct TickReport {
-    /// Number of fixtures the upstream returned in this tick.
     pub total: usize,
-    /// Fixtures for which a `MatchFinished` event was emitted (i.e. transitioned
-    /// into `finished` during this tick).
     pub emitted: usize,
-    /// Fixtures whose row failed to upsert / publish; skipped without aborting
-    /// the rest of the tick. Investigate via the per-row `warn!` log lines.
     pub skipped: usize,
-    /// Fixtures whose post-upsert status is `live`. Drives the adaptive
-    /// cadence in `run`.
     pub live_count: usize,
 }
 
 impl TickReport {
-    /// Whether any match is currently live. Cheap accessor to keep call
-    /// sites readable.
     pub fn any_live(&self) -> bool {
         self.live_count > 0
     }
 }
 
-/// Per-match outcome of `process_match`. Carried back to `poll_once` so it
-/// can build a `TickReport` from in-flight knowledge instead of re-reading
-/// the DB after the loop.
 struct ProcessOutcome {
-    /// Whether `MatchFinished::V1` was published for this fixture.
     emitted_finished: bool,
-    /// Domain status of the post-upsert row. Used to count live matches.
     status_after: MatchStatus,
 }
 
 /// Run a single ingestion tick: fetch fixtures, upsert, and emit
-/// `MatchFinished` for any match that just transitioned into the
-/// `finished` state. Idempotent: re-running on the same upstream payload
-/// is a no-op (the upsert preserves the row, no transition is detected).
-///
-/// Returns a `TickReport` so the driver can choose its next sleep duration
-/// based on the live-match count without an extra DB round-trip.
+/// `MatchFinished::V1` exactly once per `→ finished` transition.
+/// Idempotent: re-running against the same upstream payload yields no
+/// transitions and no events.
 #[instrument(
-    skip(client, match_repo, team_repo, publisher, tournament, rounds),
+    skip(client, match_repo, team_index, publisher, tournament, rounds),
     fields(tournament_id = %tournament.id)
 )]
 pub async fn poll_once(
     client: &SportsClient,
     match_repo: &PgMatchRepository,
-    team_repo: &PgTeamRepository,
+    team_index: &HashMap<String, Uuid>,
     publisher: &Publisher,
     tournament: &Tournament,
     rounds: &GlobalRounds,
@@ -101,25 +72,12 @@ pub async fn poll_once(
             )
         })?;
 
-    // Single pre-fetch of teams keeps the inner loop allocation-free and
-    // saves one Postgres round-trip per match. The map is empty until the
-    // tournament-data ingester (#9) populates `teams`; until then the
-    // resolver returns None for every code, leaving `pens_winner_team_id`
-    // NULL in the upserted row — which matches the v1 reality (no match
-    // finishes before #9 lands).
-    let teams = team_repo
-        .list_all()
-        .await
-        .map_err(shared::report_to_anyhow)
-        .context("loading teams for resolver map")?;
-    let team_index = build_team_index(&teams);
-
     let mut emitted = 0usize;
     let mut skipped = 0usize;
     let mut live_count = 0usize;
 
     for dto in &resp.matches {
-        match process_match(dto, rounds, &team_index, match_repo, publisher).await {
+        match process_match(dto, rounds, team_index, match_repo, publisher).await {
             Ok(outcome) => {
                 if outcome.emitted_finished {
                     emitted += 1;
@@ -129,9 +87,6 @@ pub async fn poll_once(
                 }
             }
             Err(err) => {
-                // One bad row must not poison the whole tick. We log loud
-                // (warn, not error) so the next pass has a chance to retry
-                // without operator intervention.
                 warn!(
                     upstream_id = dto.id,
                     error = ?err,
@@ -158,10 +113,8 @@ pub async fn poll_once(
     Ok(report)
 }
 
-/// Process a single match DTO end-to-end. Returns the post-upsert status
-/// and whether a `MatchFinished` event was published for this row, so the
-/// outer loop can build aggregate counts (live, emitted) without any extra
-/// queries.
+/// Process a single match DTO end-to-end: read prior state, upsert, and
+/// publish a `MatchFinished` if the upsert was a `→ finished` transition.
 async fn process_match(
     dto: &MatchDto,
     rounds: &GlobalRounds,
@@ -178,11 +131,8 @@ async fn process_match(
         .map_err(shared::report_to_anyhow)
         .with_context(|| format!("looking up match external_id={external_id}"))?;
 
-    // Reuse the existing UUID on conflict so any FK already pointing at
-    // this match (e.g. `predictions.match_id`) stays valid. When prev is
-    // None, mint a fresh UUID — the INSERT will use it; on a future
-    // conflict it would be ignored by ON CONFLICT (round_id, external_id)
-    // DO UPDATE.
+    // Reuse the existing UUID on conflict so any FK already pointing at this
+    // match (e.g. `predictions.match_id`) stays valid.
     let match_id = prev.as_ref().map(|p| p.id).unwrap_or_else(Uuid::new_v4);
 
     let new_match = dto_to_match(dto, round_id, match_id, |code| {
@@ -205,10 +155,9 @@ async fn process_match(
         });
     }
 
+    // Upstream occasionally reports `finished` before scores land. Defer
+    // emission rather than publish a misleading 0-0; the next tick retries.
     let (Some(home_score), Some(away_score)) = (new_match.home_score, new_match.away_score) else {
-        // Upstream said `finished` but did not ship scores. We refuse to
-        // emit a misleading 0-0 event; the next tick will retry once the
-        // upstream catches up.
         warn!(
             external_id = %new_match.external_id,
             "finished status without scores; deferring MatchFinished"
@@ -243,7 +192,6 @@ async fn process_match(
     })
 }
 
-/// Pick which global round a fixture belongs to based on its phase.
 fn round_id_for_phase(dto: &MatchDto, rounds: &GlobalRounds) -> Uuid {
     match phase_from_stage(dto.stage.as_deref()) {
         Phase::Group => rounds.group_stage.id,
@@ -251,32 +199,24 @@ fn round_id_for_phase(dto: &MatchDto, rounds: &GlobalRounds) -> Uuid {
     }
 }
 
-/// Build the `country_code → team_id` index `dto_to_match`'s pens-winner
-/// resolver consults. Codes are stored uppercased to match how
-/// `team_country_code` produces them at the call site.
-fn build_team_index(teams: &[Team]) -> HashMap<String, Uuid> {
+/// Build the `country_code → team_id` index. Codes are uppercased to match
+/// the convention `team_country_code` uses at the call site.
+pub fn build_team_index(teams: &[Team]) -> HashMap<String, Uuid> {
     teams
         .iter()
         .map(|t| (t.country_code.to_ascii_uppercase(), t.id))
         .collect()
 }
 
-/// Detect whether `new` represents a fresh transition into `finished`,
-/// given an optional `prev` snapshot read from the DB before the upsert.
-///
-/// Pure: no I/O, no side effects. Driven entirely by the two `MatchStatus`
-/// values. This isolation is what lets the function be unit-tested without
-/// a Postgres or NATS instance.
+/// Detect whether `new` represents a fresh transition into `finished`. The
+/// `None` arm covers the boot-after-final case (we still want to emit so
+/// downstream scoring runs).
 fn is_finished_transition(prev: Option<&Match>, new: &Match) -> bool {
     if new.status != MatchStatus::Finished {
         return false;
     }
     match prev {
-        // First sighting of a match that is already finished. Happens when
-        // the ingester boots after a match has concluded. We do want to
-        // emit so downstream scoring runs.
         None => true,
-        // Transition into finished from any non-finished state.
         Some(p) => p.status != MatchStatus::Finished,
     }
 }
@@ -286,8 +226,6 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
 
-    /// Convenience: build a `Match` value with everything set to a sane
-    /// default. Tests override the single field they care about (`status`).
     fn match_with_status(status: MatchStatus) -> Match {
         Match {
             id: Uuid::nil(),
@@ -343,9 +281,6 @@ mod tests {
 
     #[test]
     fn finished_to_scheduled_is_not_a_transition() {
-        // Pathological upstream regression: a match that was finished
-        // somehow goes back to scheduled. Not our event — the scorer would
-        // have already processed it on the prior tick.
         let prev = match_with_status(MatchStatus::Finished);
         let new = match_with_status(MatchStatus::Scheduled);
         assert!(!is_finished_transition(Some(&prev), &new));

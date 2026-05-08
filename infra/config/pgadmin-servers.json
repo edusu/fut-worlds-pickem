@@ -1,0 +1,15 @@
+{
+  "Servers": {
+    "fwp": {
+      "Name": "Fut Worlds Pickem",
+      "Group": "Docker",
+      "Host": "fwp-postgres",
+      "Port": 5432,
+      "MaintenanceDB": "pickem",
+      "Username": "pickem",
+      "Password": "pickem",
+      "SSLMode": "prefer",
+      "ConnectTimeout": 10
+    }
+  }
+}

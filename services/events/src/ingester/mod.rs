@@ -12,6 +12,11 @@
 //! already produced — no extra DB query — keeping the dependency graph
 //! simple and the steady-state cost predictable.
 
+//! Periodic ingestion driver. Bootstraps the tournament-wide state once,
+//! then loops calling `poll::poll_once` with an adaptive cadence: 60 s
+//! while any match is live (signal carried by the `TickReport`), 300 s
+//! otherwise.
+
 pub mod bootstrap;
 pub mod football_data;
 pub mod poll;
@@ -19,6 +24,7 @@ pub mod poll;
 use std::time::Duration;
 
 use anyhow::Context;
+use domain::repository::TeamRepository;
 use messaging::Publisher;
 use persistence::repositories::{
     PgMatchRepository, PgRoundRepository, PgTeamRepository, PgTournamentRepository,
@@ -28,25 +34,12 @@ use sports_client::Client as SportsClient;
 use sqlx::PgPool;
 use tracing::{error, info};
 
-/// Sleep duration after a tick that observed at least one live match. Short
-/// enough that score updates inside the DB visibly trail the live action by
-/// less than a minute.
 const TICK_FAST: Duration = Duration::from_secs(60);
-
-/// Default sleep duration. Used when no match is live and as a back-off
-/// when a tick fails — short enough that recovery does not feel sluggish,
-/// long enough that a flaky upstream is not hammered. Mirrors the cadence
-/// originally specified in the ROADMAP.
 const TICK_SLOW: Duration = Duration::from_secs(300);
 
-/// Run the periodic ingestion loop. Polls the upstream provider, upserts
-/// matches, and emits `MatchLive` / `MatchFinished` for state changes.
-///
-/// The function never returns `Ok(())` under normal conditions — it loops
-/// forever. It returns `Err` only if the one-shot bootstrap (tournament
-/// row, global rounds) fails, since without those the loop has no anchors
-/// to write against. Per-tick failures inside the loop are logged and the
-/// driver moves on to the next tick.
+/// Run the periodic ingestion loop forever. Returns `Err` only if the
+/// one-shot bootstrap fails; per-tick failures are logged and the loop
+/// continues with the slow back-off interval.
 pub async fn run(config: Config, pool: PgPool, nats: async_nats::Client) -> anyhow::Result<()> {
     let tournament_repo = PgTournamentRepository::new(pool.clone());
     let round_repo = PgRoundRepository::new(pool.clone());
@@ -57,28 +50,39 @@ pub async fn run(config: Config, pool: PgPool, nats: async_nats::Client) -> anyh
         .map_err(shared::report_to_anyhow)
         .context("constructing sports-data client")?;
 
-    // Bootstrap is part of `run`'s contract: a successful `run` always
-    // implies the tournament + global rounds exist. Bubbling errors here
-    // up to the caller is the right thing — without these, every tick
-    // would fail anyway.
-    let tournament = bootstrap::ensure_tournament(&tournament_repo).await?;
+    let tournament = bootstrap::ensure_tournament(
+        &tournament_repo,
+        bootstrap::V1_TOURNAMENT_EXTERNAL_ID,
+        bootstrap::V1_TOURNAMENT_NAME,
+    )
+    .await?;
     let rounds = bootstrap::ensure_global_rounds(&client, &round_repo, &tournament).await?;
+
+    // Load teams once after bootstrap. The set is stable for the whole run
+    // (tournament-data ingester #9 seeds it before the loop starts and does
+    // not append later); a service restart picks up any future changes.
+    let teams = team_repo
+        .list_all()
+        .await
+        .map_err(shared::report_to_anyhow)
+        .context("loading teams for resolver index")?;
+    let team_index = poll::build_team_index(&teams);
 
     info!(
         tournament_id = %tournament.id,
         group_round_id = %rounds.group_stage.id,
         knockout_round_id = %rounds.knockouts.id,
+        team_count = team_index.len(),
         "ingester ready, starting periodic loop"
     );
 
     // First tick fires immediately so a fresh boot does not idle for the
-    // whole TICK_SLOW window before doing anything useful. Subsequent
-    // sleeps are decided from the report each tick produces.
+    // whole TICK_SLOW window before doing anything useful.
     loop {
         let wait = match poll::poll_once(
             &client,
             &match_repo,
-            &team_repo,
+            &team_index,
             &publisher,
             &tournament,
             &rounds,
@@ -88,9 +92,6 @@ pub async fn run(config: Config, pool: PgPool, nats: async_nats::Client) -> anyh
             Ok(report) if report.any_live() => TICK_FAST,
             Ok(_) => TICK_SLOW,
             Err(err) => {
-                // Hard error on a tick: log and back off the slow interval.
-                // Backing off (instead of retrying immediately) avoids a
-                // tight loop hammering an upstream that is already flaky.
                 error!(error = ?err, "ingestion tick failed; backing off");
                 TICK_SLOW
             }

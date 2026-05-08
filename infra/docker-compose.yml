@@ -46,6 +46,33 @@ services:
       - "4317:4317"   # OTLP gRPC
       - "4318:4318"   # OTLP HTTP
 
+  # pgAdmin auto-connected to the Postgres above. Open http://localhost:5055
+  # and the UI loads straight to the server tree — no login. The connection
+  # to Postgres still prompts for the password (`pickem`) the first time you
+  # expand it; tick "Save password" and pgAdmin persists it in `pgadmin-data`
+  # so subsequent boots are silent.
+  #
+  # `PGADMIN_DEFAULT_EMAIL` / `_PASSWORD` are required by the image even
+  # when login is disabled — they seed the internal user record.
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: fwp-pgadmin
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+      PGADMIN_SERVER_JSON_FILE: /pgadmin4/servers.json
+    ports:
+      - "5055:80"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+      - ./config/pgadmin-servers.json:/pgadmin4/servers.json:ro
+
 volumes:
   postgres-data:
   nats-data:
+  pgadmin-data:
