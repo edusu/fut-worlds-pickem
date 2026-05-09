@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO best_thirds_scoring (pickem_group_id, user_id, points_awarded)\n            VALUES ($1, $2, $3)\n            ON CONFLICT (pickem_group_id, user_id) DO UPDATE\n            SET points_awarded = EXCLUDED.points_awarded,\n                scored_at      = now()\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "aaedc9b3d61b1c1f3516a865937cfaad109fb1205228452e2c3e76997beac945"
+}

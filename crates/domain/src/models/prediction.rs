@@ -4,7 +4,13 @@ use uuid::Uuid;
 
 use super::user::TelegramUserId;
 
-/// A user's prediction for a single match.
+/// A user's prediction for a single match within a single pickem.
+///
+/// Per-pickem (rather than global per-user) so a user playing in multiple
+/// pickems can earn different `points_awarded` in each according to that
+/// pickem's `scoring_rule_id`. Uniqueness is enforced at the schema level
+/// by `predictions_user_pickem_match_unique` on
+/// `(user_id, pickem_group_id, match_id)`.
 ///
 /// Field semantics:
 /// - `reg_home` / `reg_away` are the predicted regulation 90' goals. In
@@ -26,6 +32,7 @@ use super::user::TelegramUserId;
 pub struct Prediction {
     pub id: Uuid,
     pub user_id: TelegramUserId,
+    pub pickem_group_id: Uuid,
     pub match_id: Uuid,
     pub reg_home: i32,
     pub reg_away: i32,

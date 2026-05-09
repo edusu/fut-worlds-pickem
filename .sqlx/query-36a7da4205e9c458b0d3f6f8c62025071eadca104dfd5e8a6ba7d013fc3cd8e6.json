@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM best_thirds_predictions\n            WHERE user_id = $1 AND pickem_group_id = $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "36a7da4205e9c458b0d3f6f8c62025071eadca104dfd5e8a6ba7d013fc3cd8e6"
+}

@@ -26,6 +26,17 @@ pub(crate) fn classify_write_error(e: sqlx::Error) -> Report<RepositoryError> {
     Report::new(e).change_context(kind)
 }
 
+/// Build the canonical "row not found by id" `NotFound` error. Used by
+/// `record_*` and `set_*` methods that issue a plain UPDATE and need to
+/// surface a missing target id (`rows_affected() == 0`) as `NotFound`
+/// rather than silently succeed.
+pub(crate) fn not_found_by_id(
+    entity: &'static str,
+    id: impl std::fmt::Display,
+) -> Report<RepositoryError> {
+    Report::new(RepositoryError::NotFound).attach(format!("{entity} {id} not found"))
+}
+
 /// Common shape of the `open`/`closed`/`scored` lifecycle enum stored as
 /// plain TEXT on `tournament_groups.state` and `knockout_phases.state`.
 /// The two domain enums (`TournamentGroupState`, `KnockoutPhaseState`)

@@ -68,6 +68,7 @@ fn pred(reg_home: i32, reg_away: i32) -> Prediction {
     Prediction {
         id: Uuid::new_v4(),
         user_id: TelegramUserId(42),
+        pickem_group_id: Uuid::new_v4(),
         match_id: Uuid::new_v4(),
         reg_home,
         reg_away,

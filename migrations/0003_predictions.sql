@@ -13,5 +13,6 @@ CREATE TABLE predictions (
     submitted_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (user_id, match_id)
 );
-
-CREATE INDEX idx_predictions_user_match ON predictions(user_id, match_id);
+-- No explicit (user_id, match_id) index: the UNIQUE constraint above
+-- already builds a btree on those columns. Hot-path indexes for the
+-- per-pickem access patterns land in 0007 once `pickem_group_id` exists.
