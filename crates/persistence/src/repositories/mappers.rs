@@ -1,34 +1,13 @@
 //! Cross-repository mapping helpers.
 //!
-//! Holds the small set of conversions that more than one repository needs —
-//! mainly enum ↔ string serialization for columns stored as plain TEXT and
-//! the `sqlx::Error` → `RepositoryError` classifier shared across upserts.
+//! Holds the small set of conversions more than one repository needs —
+//! mainly the `sqlx::Error` → `RepositoryError` classifier shared across
+//! upserts and the `open`/`closed`/`scored` lifecycle enum mapping that
+//! `tournament_groups` and `knockout_phases` both store as plain TEXT
+//! constrained by the same CHECK.
 
-use domain::{Phase, RepositoryError};
+use domain::{KnockoutPhaseState, RepositoryError, TournamentGroupState};
 use error_stack::Report;
-
-/// Canonical strings for `Phase`. Mirrors the `serde(rename_all="lowercase")`
-/// on the enum and the values seeded in migration `0002`.
-pub(crate) fn phase_to_str(phase: Phase) -> &'static str {
-    match phase {
-        Phase::Group => "group",
-        Phase::Knockout => "knockout",
-    }
-}
-
-/// Parse a `phase` column value back into the domain enum. An unrecognised
-/// string indicates schema↔enum drift (a bug in our code), so we surface it
-/// as `Backend` rather than `Integrity`.
-pub(crate) fn phase_from_str(s: &str) -> Result<Phase, Report<RepositoryError>> {
-    match s {
-        "group" => Ok(Phase::Group),
-        "knockout" => Ok(Phase::Knockout),
-        other => {
-            Err(Report::new(RepositoryError::Backend)
-                .attach(format!("unknown phase in DB: {other}")))
-        }
-    }
-}
 
 /// Classify an `sqlx::Error` from a write into the appropriate
 /// `RepositoryError` bucket. FK / unique / CHECK violations become
@@ -45,4 +24,66 @@ pub(crate) fn classify_write_error(e: sqlx::Error) -> Report<RepositoryError> {
         _ => RepositoryError::Backend,
     };
     Report::new(e).change_context(kind)
+}
+
+/// Common shape of the `open`/`closed`/`scored` lifecycle enum stored as
+/// plain TEXT on `tournament_groups.state` and `knockout_phases.state`.
+/// The two domain enums (`TournamentGroupState`, `KnockoutPhaseState`)
+/// share the same set of values but stay distinct types so a caller
+/// can't accidentally pass a phase state where a group state is expected.
+pub(crate) trait LifecycleState: Sized + Copy {
+    fn as_db_str(self) -> &'static str;
+    fn from_db_str(s: &str) -> Option<Self>;
+    fn type_name() -> &'static str;
+}
+
+impl LifecycleState for TournamentGroupState {
+    fn as_db_str(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Closed => "closed",
+            Self::Scored => "scored",
+        }
+    }
+    fn from_db_str(s: &str) -> Option<Self> {
+        Some(match s {
+            "open" => Self::Open,
+            "closed" => Self::Closed,
+            "scored" => Self::Scored,
+            _ => return None,
+        })
+    }
+    fn type_name() -> &'static str {
+        "tournament_group_state"
+    }
+}
+
+impl LifecycleState for KnockoutPhaseState {
+    fn as_db_str(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Closed => "closed",
+            Self::Scored => "scored",
+        }
+    }
+    fn from_db_str(s: &str) -> Option<Self> {
+        Some(match s {
+            "open" => Self::Open,
+            "closed" => Self::Closed,
+            "scored" => Self::Scored,
+            _ => return None,
+        })
+    }
+    fn type_name() -> &'static str {
+        "knockout_phase_state"
+    }
+}
+
+/// Parse a `state` column value back into the typed enum, surfacing an
+/// unrecognised string as `Backend` (a schema↔enum drift, our bug).
+pub(crate) fn parse_state<S: LifecycleState>(s: &str) -> Result<S, Report<RepositoryError>> {
+    S::from_db_str(s).ok_or_else(|| {
+        Report::new(RepositoryError::Backend)
+            .attach(format!("unknown {} in DB: {s}", S::type_name()))
+    })
 }

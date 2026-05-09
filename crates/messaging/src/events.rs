@@ -1,11 +1,12 @@
 //! Versioned event payloads.
 //!
-//! Every event enum has a `V1` variant from day one so adding `V2` later is a
-//! backwards-compatible change: subscribers can match on the variant they
+//! Every event enum has a `V1` variant from day one so adding `V2` later is
+//! a backwards-compatible change: subscribers can match on the variant they
 //! understand and ignore newer ones. Never delete or repurpose a variant —
 //! add a new one and migrate.
 
 use chrono::{DateTime, Utc};
+use domain::ParentRef;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -18,7 +19,6 @@ pub enum MatchFinished {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MatchFinishedV1 {
     pub match_id: Uuid,
-    pub round_id: Uuid,
     pub external_id: String,
     pub home_score: i32,
     pub away_score: i32,
@@ -34,47 +34,53 @@ pub enum MatchLive {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MatchLiveV1 {
     pub match_id: Uuid,
-    pub round_id: Uuid,
     pub kicked_off_at: DateTime<Utc>,
 }
 
+/// Submission deadline approaching for a tournament_group or
+/// knockout_phase. Replaces the previous `RoundDeadlineApproaching` (rounds
+/// are gone in the post-refactor schema).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "version")]
-pub enum RoundDeadlineApproaching {
-    V1(RoundDeadlineApproachingV1),
+pub enum SubmissionDeadlineApproaching {
+    V1(SubmissionDeadlineApproachingV1),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RoundDeadlineApproachingV1 {
-    pub round_id: Uuid,
-    pub group_id: Uuid,
+pub struct SubmissionDeadlineApproachingV1 {
+    pub parent: ParentRef,
+    pub pickem_group_id: Uuid,
     pub deadline_at: DateTime<Utc>,
     pub minutes_remaining: i64,
 }
 
+/// Submission window closed — emitted when a tournament_group or
+/// knockout_phase transitions from `open` to `closed`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "version")]
-pub enum RoundClosed {
-    V1(RoundClosedV1),
+pub enum SubmissionWindowClosed {
+    V1(SubmissionWindowClosedV1),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RoundClosedV1 {
-    pub round_id: Uuid,
-    pub group_id: Uuid,
+pub struct SubmissionWindowClosedV1 {
+    pub parent: ParentRef,
+    pub pickem_group_id: Uuid,
     pub closed_at: DateTime<Utc>,
 }
 
+/// Scoring for a tournament_group or knockout_phase has been computed and
+/// persisted.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "version")]
-pub enum RoundScored {
-    V1(RoundScoredV1),
+pub enum SubmissionWindowScored {
+    V1(SubmissionWindowScoredV1),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RoundScoredV1 {
-    pub round_id: Uuid,
-    pub group_id: Uuid,
+pub struct SubmissionWindowScoredV1 {
+    pub parent: ParentRef,
+    pub pickem_group_id: Uuid,
     pub scored_at: DateTime<Utc>,
 }
 
@@ -87,8 +93,8 @@ pub enum PredictionsSubmitted {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PredictionsSubmittedV1 {
     pub user_id: i64,
-    pub round_id: Uuid,
-    pub group_id: Uuid,
+    pub parent: ParentRef,
+    pub pickem_group_id: Uuid,
     pub submitted_at: DateTime<Utc>,
     pub prediction_count: usize,
 }
@@ -111,20 +117,20 @@ pub struct NotificationRequestedV1 {
 
 /// Body templates the bot knows how to render.
 ///
-/// New notification kinds extend this enum — the bot must learn how to render
-/// each variant before producers start emitting it.
+/// New notification kinds extend this enum — the bot must learn how to
+/// render each variant before producers start emitting it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum NotificationTemplate {
-    RoundDeadlineSoon {
-        round_id: Uuid,
-        group_id: Uuid,
+    SubmissionDeadlineSoon {
+        parent: ParentRef,
+        pickem_group_id: Uuid,
         deadline_at: DateTime<Utc>,
         minutes_remaining: i64,
     },
-    RoundClosed {
-        round_id: Uuid,
-        group_id: Uuid,
+    SubmissionWindowClosed {
+        parent: ParentRef,
+        pickem_group_id: Uuid,
     },
     MatchResult {
         match_id: Uuid,
@@ -134,7 +140,7 @@ pub enum NotificationTemplate {
         away_score: i32,
     },
     RankingUpdate {
-        group_id: Uuid,
-        round_id: Uuid,
+        pickem_group_id: Uuid,
+        parent: ParentRef,
     },
 }

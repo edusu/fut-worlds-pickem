@@ -7,8 +7,8 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::{
-    BestThirdsPrediction, GroupStandingsPrediction, Match, MatchStatus, Phase, Prediction,
-    ScoringRule, TelegramUserId,
+    BestThirdsPrediction, GroupStandingsPrediction, Match, MatchStatus, Prediction, ScoringRule,
+    TelegramUserId,
 };
 
 use super::{
@@ -27,12 +27,11 @@ fn rule() -> ScoringRule {
 fn group_match_finished(home: i32, away: i32) -> Match {
     Match {
         id: Uuid::new_v4(),
-        round_id: Uuid::new_v4(),
         external_id: "ext".into(),
-        home_team: "Home".into(),
-        away_team: "Away".into(),
-        home_flag: "🏠".into(),
-        away_flag: "✈️".into(),
+        tournament_group_id: Some(Uuid::new_v4()),
+        knockout_phase_id: None,
+        home_team_id: Some(Uuid::new_v4()),
+        away_team_id: Some(Uuid::new_v4()),
         kickoff_at: Utc::now(),
         home_score: Some(home),
         away_score: Some(away),
@@ -40,13 +39,13 @@ fn group_match_finished(home: i32, away: i32) -> Match {
         et_away_score: None,
         pens_winner_team_id: None,
         status: MatchStatus::Finished,
-        phase: Phase::Group,
     }
 }
 
 fn knockout_match_reg(home: i32, away: i32) -> Match {
     Match {
-        phase: Phase::Knockout,
+        tournament_group_id: None,
+        knockout_phase_id: Some(Uuid::new_v4()),
         ..group_match_finished(home, away)
     }
 }

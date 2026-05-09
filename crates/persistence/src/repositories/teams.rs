@@ -81,27 +81,10 @@ impl TeamRepository for PgTeamRepository {
         Ok(row.map(row_to_team))
     }
 
-    async fn list_all(&self) -> RepoResult<Vec<Team>> {
-        let rows = sqlx::query(
-            r#"
-            SELECT id, name, flag_emoji, country_code
-            FROM teams
-            ORDER BY name ASC
-            "#,
-        )
-        .fetch_all(&self.pool)
-        .await
-        .change_context(RepositoryError::Backend)?;
-
-        Ok(rows.into_iter().map(row_to_team).collect())
-    }
-}
-
-impl PgTeamRepository {
-    /// Look a team up by its country_code (3-letter FIFA / IOC). Used by the
-    /// seed CLI to resolve DTOs to existing rows without paying the cost of
-    /// loading every row first.
-    pub async fn find_by_country_code(&self, code: &str) -> RepoResult<Option<Team>> {
+    /// Look a team up by its country_code (3-letter FIFA / IOC). Used by
+    /// the seed CLI to resolve DTOs to existing rows without paying the
+    /// cost of loading every row first.
+    async fn find_by_country_code(&self, code: &str) -> RepoResult<Option<Team>> {
         let row = sqlx::query(
             r#"
             SELECT id, name, flag_emoji, country_code
@@ -115,6 +98,21 @@ impl PgTeamRepository {
         .change_context(RepositoryError::Backend)?;
 
         Ok(row.map(row_to_team))
+    }
+
+    async fn list_all(&self) -> RepoResult<Vec<Team>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT id, name, flag_emoji, country_code
+            FROM teams
+            ORDER BY name ASC
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .change_context(RepositoryError::Backend)?;
+
+        Ok(rows.into_iter().map(row_to_team).collect())
     }
 }
 

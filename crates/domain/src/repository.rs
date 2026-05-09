@@ -11,9 +11,10 @@ use uuid::Uuid;
 pub use crate::error::RepoResult;
 
 use crate::{
-    BestThirdsPrediction, Group, GroupMember, GroupStandingsPrediction, Match, Prediction, Round,
-    RoundState, ScoringRule, Team, TelegramChatId, TelegramUserId, Tournament, TournamentGroup,
-    TournamentGroupAssignment, User,
+    BestThirdsPrediction, Group, GroupMember, GroupStandingsPrediction, KnockoutPhase,
+    KnockoutPhaseState, KnockoutStage, Match, Prediction, ScoringRule, Team, TelegramChatId,
+    TelegramUserId, Tournament, TournamentGroup, TournamentGroupAssignment, TournamentGroupState,
+    User,
 };
 
 #[async_trait]
@@ -44,22 +45,10 @@ pub trait GroupRepository: Send + Sync {
 }
 
 #[async_trait]
-pub trait RoundRepository: Send + Sync {
-    async fn create(&self, round: &Round) -> RepoResult<()>;
-    /// Rounds of a tournament currently accepting predictions: state `open`
-    /// and deadline still in the future. The deadline check matters because
-    /// the api enforces it at write time (no scheduler flips rows to
-    /// `closed` in v1).
-    async fn list_active(&self, tournament_id: Uuid) -> RepoResult<Vec<Round>>;
-    async fn set_state(&self, round_id: Uuid, state: RoundState) -> RepoResult<()>;
-    async fn list_due_for_close(&self, before: DateTime<Utc>) -> RepoResult<Vec<Round>>;
-}
-
-#[async_trait]
 pub trait TournamentRepository: Send + Sync {
     /// Insert or refresh a tournament by `external_id`. The ingester calls
     /// this on first boot to seed e.g. the World Cup 2026 row before any
-    /// rounds or matches exist.
+    /// groups, phases, or matches exist.
     async fn upsert(&self, tournament: &Tournament) -> RepoResult<()>;
     async fn find(&self, id: Uuid) -> RepoResult<Option<Tournament>>;
     /// Look a tournament up by its upstream code, e.g. `"WC"`. Used by the
@@ -70,7 +59,12 @@ pub trait TournamentRepository: Send + Sync {
 #[async_trait]
 pub trait MatchRepository: Send + Sync {
     async fn upsert(&self, match_: &Match) -> RepoResult<()>;
-    async fn list_by_round(&self, round_id: Uuid) -> RepoResult<Vec<Match>>;
+    /// Group-stage matches in a single tournament group. Returns rows
+    /// where `tournament_group_id = $1` ordered by `kickoff_at`.
+    async fn list_by_tournament_group(&self, group_id: Uuid) -> RepoResult<Vec<Match>>;
+    /// Knockout matches in a single phase. Returns rows where
+    /// `knockout_phase_id = $1` ordered by `kickoff_at`.
+    async fn list_by_knockout_phase(&self, phase_id: Uuid) -> RepoResult<Vec<Match>>;
     async fn find(&self, id: Uuid) -> RepoResult<Option<Match>>;
 }
 
@@ -83,8 +77,8 @@ pub trait PredictionRepository: Send + Sync {
     async fn upsert(&self, prediction: &Prediction) -> RepoResult<()>;
     async fn list_by_match(&self, match_id: Uuid) -> RepoResult<Vec<Prediction>>;
     async fn list_by_user(&self, user_id: TelegramUserId) -> RepoResult<Vec<Prediction>>;
-    /// All predictions belonging to users in a given pickem (joining via the
-    /// rounds → matches → predictions chain). Used by the ranking aggregator.
+    /// All predictions belonging to users in a given pickem. Used by the
+    /// ranking aggregator.
     async fn list_by_pickem(&self, pickem_group_id: Uuid) -> RepoResult<Vec<Prediction>>;
     async fn record_points(&self, prediction_id: Uuid, points: i32) -> RepoResult<()>;
     /// Defensive setter — `upsert` already flips this on update, but a
@@ -103,16 +97,58 @@ pub trait ScoringRuleRepository: Send + Sync {
 pub trait TeamRepository: Send + Sync {
     async fn upsert(&self, team: &Team) -> RepoResult<()>;
     async fn find(&self, id: Uuid) -> RepoResult<Option<Team>>;
+    async fn find_by_country_code(&self, country_code: &str) -> RepoResult<Option<Team>>;
     async fn list_all(&self) -> RepoResult<Vec<Team>>;
 }
 
 #[async_trait]
 pub trait TournamentGroupRepository: Send + Sync {
     async fn upsert(&self, group: &TournamentGroup) -> RepoResult<()>;
-    async fn list_all(&self) -> RepoResult<Vec<TournamentGroup>>;
-    /// Idempotently associate a team with a tournament group.
+    async fn find(&self, id: Uuid) -> RepoResult<Option<TournamentGroup>>;
+    /// Look up by the natural key `(tournament_id, name)`. Used by the
+    /// bootstrap to detect already-seeded groups.
+    async fn find_by_name(
+        &self,
+        tournament_id: Uuid,
+        name: &str,
+    ) -> RepoResult<Option<TournamentGroup>>;
+    async fn list_by_tournament(&self, tournament_id: Uuid) -> RepoResult<Vec<TournamentGroup>>;
+    /// Active groups in a tournament currently accepting predictions:
+    /// state `open` and deadline still in the future. The deadline check
+    /// matters because the api enforces it at write time (no scheduler
+    /// flips rows to `closed` in v1).
+    async fn list_active(&self, tournament_id: Uuid) -> RepoResult<Vec<TournamentGroup>>;
+    async fn set_state(&self, group_id: Uuid, state: TournamentGroupState) -> RepoResult<()>;
+    /// Groups whose deadline has passed but state is still `open`.
+    /// Returned in ascending `deadline_at` order.
+    async fn list_due_for_close(&self, before: DateTime<Utc>) -> RepoResult<Vec<TournamentGroup>>;
+    /// Idempotently associate a team with a tournament group. The
+    /// composite FK on the join table prevents inconsistent assignments
+    /// (group from a different tournament than the assignment claims).
     async fn assign_team(&self, assignment: &TournamentGroupAssignment) -> RepoResult<()>;
     async fn list_teams_in_group(&self, group_id: Uuid) -> RepoResult<Vec<Team>>;
+}
+
+#[async_trait]
+pub trait KnockoutPhaseRepository: Send + Sync {
+    async fn upsert(&self, phase: &KnockoutPhase) -> RepoResult<()>;
+    async fn find(&self, id: Uuid) -> RepoResult<Option<KnockoutPhase>>;
+    /// Look up by the natural key `(tournament_id, stage)`. Used by the
+    /// bootstrap to detect already-seeded phases.
+    async fn find_by_stage(
+        &self,
+        tournament_id: Uuid,
+        stage: KnockoutStage,
+    ) -> RepoResult<Option<KnockoutPhase>>;
+    /// All phases of a tournament ordered by `position` ASC. Drives the
+    /// bracket render in the Mini App.
+    async fn list_by_tournament(&self, tournament_id: Uuid) -> RepoResult<Vec<KnockoutPhase>>;
+    /// Phases currently accepting predictions: state `open` and deadline
+    /// still in the future.
+    async fn list_active(&self, tournament_id: Uuid) -> RepoResult<Vec<KnockoutPhase>>;
+    async fn set_state(&self, phase_id: Uuid, state: KnockoutPhaseState) -> RepoResult<()>;
+    /// Phases whose deadline has passed but state is still `open`.
+    async fn list_due_for_close(&self, before: DateTime<Utc>) -> RepoResult<Vec<KnockoutPhase>>;
 }
 
 #[async_trait]

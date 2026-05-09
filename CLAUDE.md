@@ -41,9 +41,9 @@ inside `frontend/miniapp/`) is consumed only by the API service.
   deferred (see "Current scope" below).
 - **`services/api`** — Axum HTTP server consumed by the Mini App. Every
   protected route is gated by `middleware::auth::verify_init_data` (HMAC-SHA256
-  over Telegram's signed `initData`). The endpoint also enforces "round still
-  open" at submission time, since v1 has no background job to close rounds at
-  the deadline.
+  over Telegram's signed `initData`). The endpoint also enforces "the parent
+  submission window (tournament_group or knockout_phase) is still open" at
+  submission time, since v1 has no background job to close them at the deadline.
 - **`services/events`** — ingester (polls football-data.org for fixtures and
   results) and scorer (consumes `pickem.match.finished` and writes
   `predictions.points_awarded`). The scheduler module is scaffolded but inert
@@ -65,12 +65,14 @@ inside `frontend/miniapp/`) is consumed only by the API service.
 Postgres is shared but each table has a single logical owner — only that
 service writes; others may read. Owner is documented in the migration header.
 
-| Tables                           | Owner            |
-|----------------------------------|------------------|
-| `users`, `groups`, `group_members` | `services/bot`   |
-| `rounds`, `matches`              | `services/events`|
-| `predictions`                    | `services/api`   |
-| `scoring_rules`                  | `services/events`|
+| Tables                                                                 | Owner            |
+|------------------------------------------------------------------------|------------------|
+| `users`, `groups`, `group_members`                                     | `services/bot`   |
+| `tournaments`, `teams`, `tournament_groups`, `knockout_phases`, `tournament_group_teams`, `matches` | `services/events`|
+| `predictions`, `group_standings_predictions`, `best_thirds_predictions`, `best_thirds_scoring`      | `services/api` (writes); `services/events` writes `points_awarded` only |
+| `scoring_rules`                                                        | `services/events`|
+
+The fixtures graph (`tournaments → teams → tournament_groups → knockout_phases → tournament_group_teams → matches`) is consolidated in migration `0002`; migration `0005` is a documented placeholder. Match parents are polymorphic: every `matches` row points at exactly one of `tournament_group_id` or `knockout_phase_id`, enforced by the `matches_parent_xor` CHECK. Submission deadlines and lifecycle (`open`/`closed`/`scored`) live on `tournament_groups` and `knockout_phases` directly — there is no `rounds` table.
 
 ## Commands
 
@@ -243,11 +245,22 @@ What's deferred (scaffolded but dormant):
 
 - Push notifications to the chat. The `pickem.notification.requested`
   contract, the bot's `event_consumers::notify` consumer, and the
-  `RoundDeadlineApproaching` / `RoundClosed` / `RoundScored` event variants
-  are all declared but no producer emits them.
+  `SubmissionDeadlineApproaching` / `SubmissionWindowClosed` /
+  `SubmissionWindowScored` event variants are all declared but no producer
+  emits them. (These were the `Round*` events before the rounds-to-phases
+  refactor.)
 - The cron scheduler (`tokio-cron-scheduler`) — the module is scaffolded,
-  no jobs are registered. Round closing is enforced at write time by the API
-  validating `round.state == 'open' AND now < round.deadline_at`.
+  no jobs are registered. Submission closing is enforced at write time by
+  the API validating `parent.state == 'open' AND now < parent.deadline_at`,
+  where `parent` is the relevant `tournament_groups` or `knockout_phases`
+  row.
+- `updated_at` columns on mutation-prone tables (matches, predictions,
+  groups, phases). Out for v1; reintroduce with a `BEFORE UPDATE` trigger
+  when audit becomes a requirement.
+- Per-stage knockout deadlines. The schema supports each `knockout_phase`
+  having its own `deadline_at`; v1 sets all 6 to the same first-knockout
+  kickoff. Switching to per-stage is a seed-side change with no schema
+  migration.
 
 When reintroducing push-to-chat: emit `NotificationRequested` from the relevant
 producer, wire the bot's notify consumer to render each `NotificationTemplate`

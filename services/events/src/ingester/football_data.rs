@@ -9,52 +9,45 @@
 //! database connection.
 
 use chrono::{DateTime, Utc};
-use domain::{Match, MatchStatus, Phase, Team};
+use domain::{KnockoutStage, Match, MatchStatus, ParentRef, Phase, Team};
 use shared::flag_emoji;
 use sports_client::{
     AreaDto, MatchDto, MatchStatusDto, ScoreDto, ScoreDuration, StandingDto, TeamDto, WinnerDto,
 };
 use uuid::Uuid;
 
-/// Stage strings the upstream uses for the World Cup knockout bracket.
-///
-/// Anything else (`GROUP_STAGE`, `LEAGUE`, `LEAGUE_STAGE`, ...) is treated as
-/// the group phase. Listed verbatim from the football-data.org docs.
-const KNOCKOUT_STAGES: &[&str] = &[
-    // The 48-team World Cup 2026 introduces a Round of 32 between the group
-    // stage and the Round of 16 — the upstream labels it `LAST_32`.
-    "LAST_32",
-    "LAST_16",
-    "ROUND_OF_32",
-    "ROUND_OF_16",
-    "QUARTER_FINALS",
-    "SEMI_FINALS",
-    "THIRD_PLACE",
-    "FINAL",
-    "PRELIMINARY_ROUND",
-    "PLAY_OFFS",
-    "PLAYOFFS",
-    "PLAYOFF_ROUND_1",
-    "PLAYOFF_ROUND_2",
-    "PLAYOFF_ROUND_3",
-];
-
 /// Map an upstream `stage` string onto the domain `Phase` enum.
 ///
 /// `None` (no stage in the payload) defaults to `Phase::Group` because the
 /// matches endpoint sometimes ships fixtures without a stage during the
-/// pre-tournament window — treating them as group-stage matches is the safer
-/// default (we never accidentally emit "knockout" semantics for an unknown
-/// match).
+/// pre-tournament window — treating them as group-stage matches is the
+/// safer default (we never accidentally emit "knockout" semantics for an
+/// unknown match).
 pub fn phase_from_stage(stage: Option<&str>) -> Phase {
-    let Some(stage) = stage else {
-        return Phase::Group;
-    };
-    let upper = stage.to_ascii_uppercase();
-    if KNOCKOUT_STAGES.iter().any(|s| *s == upper) {
-        Phase::Knockout
-    } else {
-        Phase::Group
+    match knockout_stage_from_upstream(stage) {
+        Some(_) => Phase::Knockout,
+        None => Phase::Group,
+    }
+}
+
+/// Map the upstream `stage` string onto a `KnockoutStage`. Returns `None`
+/// for the group stage, league competitions, and any string outside the
+/// closed knockout-stage set — the caller treats `None` as "this match
+/// is group-stage" (or "skip, we don't know how to bucket it").
+pub fn knockout_stage_from_upstream(stage: Option<&str>) -> Option<KnockoutStage> {
+    let stage = stage?;
+    let upper = stage.trim().to_ascii_uppercase();
+    match upper.as_str() {
+        "LAST_32" => Some(KnockoutStage::Last32),
+        // Older football-data feeds occasionally label the Round of 32 with
+        // the long form — we accept both for resilience.
+        "ROUND_OF_32" => Some(KnockoutStage::Last32),
+        "LAST_16" | "ROUND_OF_16" => Some(KnockoutStage::Last16),
+        "QUARTER_FINALS" => Some(KnockoutStage::QuarterFinals),
+        "SEMI_FINALS" => Some(KnockoutStage::SemiFinals),
+        "THIRD_PLACE" => Some(KnockoutStage::ThirdPlace),
+        "FINAL" => Some(KnockoutStage::Final),
+        _ => None,
     }
 }
 
@@ -78,39 +71,24 @@ pub fn group_label_from_upstream(group: Option<&str>) -> Option<String> {
     Some(format!("Group {}", token.trim().to_ascii_uppercase()))
 }
 
-/// Map the upstream `status` enum onto our domain `MatchStatus`.
-///
-/// `Timed` collapses into `Scheduled` (it is the upstream's "kickoff time
-/// confirmed but not yet started" sub-state). `InPlay` and `Paused` collapse
-/// into `Live`. `Suspended` and `Awarded` are bucketed into `Postponed` —
-/// these are rare administrative states the bot does not need to distinguish.
+/// Map the upstream `status` enum onto our domain `MatchStatus` 1:1. The
+/// schema's `matches_status_valid` CHECK enforces the same closed set, so
+/// every variant must round-trip.
 pub fn match_status_from_dto(status: MatchStatusDto) -> MatchStatus {
     match status {
-        MatchStatusDto::Scheduled | MatchStatusDto::Timed => MatchStatus::Scheduled,
-        MatchStatusDto::InPlay | MatchStatusDto::Paused => MatchStatus::Live,
+        MatchStatusDto::Scheduled => MatchStatus::Scheduled,
+        MatchStatusDto::Timed => MatchStatus::Timed,
+        MatchStatusDto::InPlay => MatchStatus::InPlay,
+        MatchStatusDto::Paused => MatchStatus::Paused,
         MatchStatusDto::Finished => MatchStatus::Finished,
-        MatchStatusDto::Postponed | MatchStatusDto::Suspended | MatchStatusDto::Awarded => {
-            MatchStatus::Postponed
-        }
+        MatchStatusDto::Suspended => MatchStatus::Suspended,
+        MatchStatusDto::Postponed => MatchStatus::Postponed,
         MatchStatusDto::Cancelled => MatchStatus::Cancelled,
+        MatchStatusDto::Awarded => MatchStatus::Awarded,
         // Forward-compatible: anything we have not seen before is bucketed
         // as scheduled so the scorer never misfires on it.
         MatchStatusDto::Unknown => MatchStatus::Scheduled,
     }
-}
-
-/// Resolved view of a DTO team — what the adapter cares about after
-/// looking the country code up against the local `teams` table.
-pub struct ResolvedTeam {
-    /// `tla` from the team DTO. Used as the human-readable label in CLI
-    /// output and as the fallback when the team is not yet in the local DB.
-    pub label: String,
-    /// 3-letter country code, when available.
-    pub country_code: Option<String>,
-    /// UUID assigned to the team in our DB. `None` when the team has not been
-    /// seeded yet — callers must decide whether that's an error (for
-    /// `pens_winner_team_id` resolution) or a soft-fail (for printing).
-    pub local_id: Option<Uuid>,
 }
 
 /// Build a `Team` row from a standalone team DTO returned by
@@ -133,15 +111,16 @@ pub fn dto_to_team(dto: &TeamDto, fallback_id: Uuid) -> Option<Team> {
 /// Extract the country-code we use as natural key for a team.
 ///
 /// We prefer `tla` (FIFA 3-letter) over `area.code` because the matches
-/// endpoint references teams by `tla` only — using anything else here would
-/// break the join when later mapping match.home_team back to a `teams.id`.
+/// endpoint references teams by `tla` only — using anything else here
+/// would break the join when later mapping a match's team ref back to a
+/// `teams.id`.
 ///
 /// `area.code` is still useful as a flag-emoji input (it is more often a
-/// real ISO 3166-1 alpha-3), so callers who only need the flag fall through
-/// to `flag_emoji_for_team` which prefers `area.code` over `tla`.
+/// real ISO 3166-1 alpha-3), so callers who only need the flag fall
+/// through to `flag_emoji_for_team` which prefers `area.code` over `tla`.
 ///
-/// Returns `None` only when both are absent / blank, in which case the team
-/// cannot be persisted (we have no natural key for upsert idempotency).
+/// Returns `None` only when both are absent / blank, in which case the
+/// team cannot be persisted (we have no natural key for upsert idempotency).
 pub fn team_country_code(dto: &TeamDto) -> Option<String> {
     if let Some(tla) = dto.tla.as_ref() {
         let trimmed = tla.trim();
@@ -154,9 +133,9 @@ pub fn team_country_code(dto: &TeamDto) -> Option<String> {
 
 /// Pick the best flag-emoji input for a team.
 ///
-/// The `area.code` (when present) is more likely to be a real ISO code than
-/// `tla` is — `tla` collides with club abbreviations on club competitions —
-/// so we try `area.code` first and fall back to `tla`.
+/// The `area.code` (when present) is more likely to be a real ISO code
+/// than `tla` is — `tla` collides with club abbreviations on club
+/// competitions — so we try `area.code` first and fall back to `tla`.
 pub fn flag_emoji_for_team(dto: &TeamDto) -> String {
     if let Some(area) = dto.area.as_ref() {
         if let Some(code) = code_from_area(area) {
@@ -190,7 +169,7 @@ fn code_from_area(area: &AreaDto) -> Option<String> {
 /// member of that group.
 ///
 /// Output is deduplicated implicitly when the caller passes it through the
-/// `assign_team` `ON CONFLICT DO NOTHING` upsert.
+/// `assign_team` upsert.
 pub fn group_assignments_from_matches(matches: &[MatchDto]) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for m in matches {
@@ -235,8 +214,6 @@ pub fn group_assignments_from_standings(standings: &[StandingDto]) -> Vec<(Strin
             continue;
         };
         for row in &entry.table {
-            // The team ref inside standings carries `tla` but not `area`,
-            // so we only have the 3-letter code as the country code candidate.
             let Some(code) = row
                 .team
                 .tla
@@ -342,19 +319,23 @@ pub fn parse_kickoff(utc_date: &str) -> Option<DateTime<Utc>> {
         .map(|dt| dt.with_timezone(&Utc))
 }
 
-/// Convert a match DTO into the domain `Match`, given the round it belongs
-/// to and a function that resolves a country code into a local team UUID.
+/// Convert a match DTO into the domain `Match`, given the structural
+/// parent it belongs to and a function that resolves a country code into
+/// a local team UUID.
 ///
-/// The team resolver is injected so the same conversion logic works in the
-/// CLI (where the resolver hits Postgres) and in unit tests (where it is a
-/// closure over a HashMap).
+/// The team resolver is injected so the same conversion logic works in
+/// the CLI (where the resolver hits Postgres) and in unit tests (where it
+/// is a closure over a HashMap). Both `home_team_id` and `away_team_id`
+/// stay `None` when the resolver cannot resolve them — that's the case
+/// for unresolved knockouts ("Winner of QF1") that the upstream ships
+/// without participants.
 ///
 /// Returns `None` only when the kickoff timestamp cannot be parsed —
 /// everything else (missing scores, missing teams, unknown stages) has a
 /// sensible fallback.
 pub fn dto_to_match<F>(
     dto: &MatchDto,
-    round_id: Uuid,
+    parent: ParentRef,
     new_id: Uuid,
     mut resolve_team: F,
 ) -> Option<Match>
@@ -364,32 +345,29 @@ where
     let kickoff_at = parse_kickoff(&dto.utc_date)?;
     let scores = resolve_scores(dto.score.as_ref());
 
-    let home_label = team_label(&dto.home_team);
-    let away_label = team_label(&dto.away_team);
     let home_code = team_ref_country_code(&dto.home_team);
     let away_code = team_ref_country_code(&dto.away_team);
-    let home_flag = home_code
-        .as_deref()
-        .map(flag_emoji)
-        .unwrap_or_else(|| flag_emoji(""));
-    let away_flag = away_code
-        .as_deref()
-        .map(flag_emoji)
-        .unwrap_or_else(|| flag_emoji(""));
+
+    let home_team_id = home_code.as_deref().and_then(&mut resolve_team);
+    let away_team_id = away_code.as_deref().and_then(&mut resolve_team);
 
     let pens_winner_team_id = scores.pens_winner.and_then(|side| match side {
-        PensWinner::Home => home_code.as_deref().and_then(&mut resolve_team),
-        PensWinner::Away => away_code.as_deref().and_then(&mut resolve_team),
+        PensWinner::Home => home_team_id,
+        PensWinner::Away => away_team_id,
     });
+
+    let (tournament_group_id, knockout_phase_id) = match parent {
+        ParentRef::TournamentGroup { id } => (Some(id), None),
+        ParentRef::KnockoutPhase { id } => (None, Some(id)),
+    };
 
     Some(Match {
         id: new_id,
-        round_id,
         external_id: dto.id.to_string(),
-        home_team: home_label,
-        away_team: away_label,
-        home_flag,
-        away_flag,
+        tournament_group_id,
+        knockout_phase_id,
+        home_team_id,
+        away_team_id,
         kickoff_at,
         home_score: scores.home_score,
         away_score: scores.away_score,
@@ -397,13 +375,13 @@ where
         et_away_score: scores.et_away_score,
         pens_winner_team_id,
         status: match_status_from_dto(dto.status),
-        phase: phase_from_stage(dto.stage.as_deref()),
     })
 }
 
 /// Best-effort human label for an embedded team ref. Falls back to "TBD"
 /// when neither `name` nor `tla` is present (common for placeholders like
-/// "Winner of Round of 16 Match 47" in early bracket data).
+/// "Winner of Round of 16 Match 47" in early bracket data). Used by the
+/// CLI for printing only — the persistence path stores team UUIDs.
 pub fn team_label(team: &sports_client::TeamRefDto) -> String {
     team.name
         .clone()
@@ -454,15 +432,50 @@ mod tests {
     #[test]
     fn phase_picks_knockout_for_known_brackets() {
         assert_eq!(phase_from_stage(Some("GROUP_STAGE")), Phase::Group);
-        // WC 2026 introduces an extra Round of 32 — the upstream tag is
-        // LAST_32 and we must classify it as knockout for the scorer to
-        // dispatch correctly.
         assert_eq!(phase_from_stage(Some("LAST_32")), Phase::Knockout);
         assert_eq!(phase_from_stage(Some("LAST_16")), Phase::Knockout);
         assert_eq!(phase_from_stage(Some("QUARTER_FINALS")), Phase::Knockout);
         assert_eq!(phase_from_stage(Some("FINAL")), Phase::Knockout);
         assert_eq!(phase_from_stage(None), Phase::Group);
         assert_eq!(phase_from_stage(Some("WHATEVER")), Phase::Group);
+    }
+
+    #[test]
+    fn knockout_stage_maps_known_codes() {
+        assert_eq!(
+            knockout_stage_from_upstream(Some("LAST_32")),
+            Some(KnockoutStage::Last32)
+        );
+        assert_eq!(
+            knockout_stage_from_upstream(Some("ROUND_OF_32")),
+            Some(KnockoutStage::Last32)
+        );
+        assert_eq!(
+            knockout_stage_from_upstream(Some("LAST_16")),
+            Some(KnockoutStage::Last16)
+        );
+        assert_eq!(
+            knockout_stage_from_upstream(Some("ROUND_OF_16")),
+            Some(KnockoutStage::Last16)
+        );
+        assert_eq!(
+            knockout_stage_from_upstream(Some("QUARTER_FINALS")),
+            Some(KnockoutStage::QuarterFinals)
+        );
+        assert_eq!(
+            knockout_stage_from_upstream(Some("SEMI_FINALS")),
+            Some(KnockoutStage::SemiFinals)
+        );
+        assert_eq!(
+            knockout_stage_from_upstream(Some("THIRD_PLACE")),
+            Some(KnockoutStage::ThirdPlace)
+        );
+        assert_eq!(
+            knockout_stage_from_upstream(Some("FINAL")),
+            Some(KnockoutStage::Final)
+        );
+        assert_eq!(knockout_stage_from_upstream(Some("GROUP_STAGE")), None);
+        assert_eq!(knockout_stage_from_upstream(None), None);
     }
 
     #[test]
@@ -558,17 +571,48 @@ mod tests {
 
     #[test]
     fn dto_to_match_resolves_team_ids_via_callback() {
-        let dto = match_dto_skeleton();
-        let round_id = Uuid::new_v4();
-        let new_id = Uuid::new_v4();
-        let m = dto_to_match(&dto, round_id, new_id, |_code| None).expect("kickoff parses");
+        use std::collections::HashMap;
 
-        assert_eq!(m.round_id, round_id);
+        let dto = match_dto_skeleton();
+        let group_id = Uuid::new_v4();
+        let new_id = Uuid::new_v4();
+        let arg_id = Uuid::new_v4();
+        let esp_id = Uuid::new_v4();
+        let teams: HashMap<&str, Uuid> = [("ARG", arg_id), ("ESP", esp_id)].into_iter().collect();
+
+        let m = dto_to_match(
+            &dto,
+            ParentRef::TournamentGroup { id: group_id },
+            new_id,
+            |code| teams.get(code).copied(),
+        )
+        .expect("kickoff parses");
+
+        assert_eq!(m.tournament_group_id, Some(group_id));
+        assert_eq!(m.knockout_phase_id, None);
         assert_eq!(m.external_id, "1");
-        assert_eq!(m.home_team, "Argentina");
-        assert_eq!(m.away_team, "Spain");
-        assert_eq!(m.phase, Phase::Group);
+        assert_eq!(m.home_team_id, Some(arg_id));
+        assert_eq!(m.away_team_id, Some(esp_id));
         assert_eq!(m.status, MatchStatus::Scheduled);
         assert!(m.pens_winner_team_id.is_none());
+    }
+
+    #[test]
+    fn dto_to_match_leaves_team_ids_none_when_resolver_returns_none() {
+        let dto = match_dto_skeleton();
+        let phase_id = Uuid::new_v4();
+        let new_id = Uuid::new_v4();
+        let m = dto_to_match(
+            &dto,
+            ParentRef::KnockoutPhase { id: phase_id },
+            new_id,
+            |_| None,
+        )
+        .expect("kickoff parses");
+
+        assert_eq!(m.knockout_phase_id, Some(phase_id));
+        assert_eq!(m.tournament_group_id, None);
+        assert!(m.home_team_id.is_none());
+        assert!(m.away_team_id.is_none());
     }
 }

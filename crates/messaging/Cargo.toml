@@ -10,6 +10,7 @@ description = "NATS JetStream contract for inter-service events."
 
 [dependencies]
 async-nats = { workspace = true }
+domain = { path = "../domain" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use anyhow::Context;
 use chrono::Utc;
 use domain::repository::MatchRepository;
-use domain::{Match, MatchStatus, Phase, Team, Tournament};
+use domain::{KnockoutStage, Match, MatchStatus, ParentRef, Phase, Team, Tournament};
 use messaging::{
     events::{MatchFinished, MatchFinishedV1},
     topics, Publisher,
@@ -20,8 +20,22 @@ use sports_client::{Client as SportsClient, MatchDto};
 use tracing::{instrument, warn};
 use uuid::Uuid;
 
-use super::bootstrap::GlobalRounds;
-use super::football_data::{dto_to_match, phase_from_stage};
+use super::football_data::{
+    dto_to_match, group_label_from_upstream, knockout_stage_from_upstream, phase_from_stage,
+};
+
+/// All the bootstrap-resolved state the hot ingestion path needs to map a
+/// raw `MatchDto` into a domain `Match`. Built once after bootstrap and
+/// passed into every `poll_once` call.
+pub struct IngestContext {
+    pub tournament: Tournament,
+    /// `"Group A" → tournament_groups.id`.
+    pub group_index: HashMap<String, Uuid>,
+    /// `KnockoutStage → knockout_phases.id`.
+    pub knockout_index: HashMap<KnockoutStage, Uuid>,
+    /// `country_code → teams.id` (uppercased keys).
+    pub team_index: HashMap<String, Uuid>,
+}
 
 /// Aggregate snapshot of one ingestion tick. Returned to the driver so it
 /// can adapt the polling cadence (fast while `live_count > 0`, slow
@@ -50,25 +64,23 @@ struct ProcessOutcome {
 /// Idempotent: re-running against the same upstream payload yields no
 /// transitions and no events.
 #[instrument(
-    skip(client, match_repo, team_index, publisher, tournament, rounds),
-    fields(tournament_id = %tournament.id)
+    skip(client, match_repo, publisher, ctx),
+    fields(tournament_id = %ctx.tournament.id)
 )]
 pub async fn poll_once(
     client: &SportsClient,
     match_repo: &PgMatchRepository,
-    team_index: &HashMap<String, Uuid>,
     publisher: &Publisher,
-    tournament: &Tournament,
-    rounds: &GlobalRounds,
+    ctx: &IngestContext,
 ) -> anyhow::Result<TickReport> {
     let resp = client
-        .get_competition_matches(&tournament.external_id)
+        .get_competition_matches(&ctx.tournament.external_id)
         .await
         .map_err(shared::report_to_anyhow)
         .with_context(|| {
             format!(
                 "fetching fixtures for competition {}",
-                tournament.external_id
+                ctx.tournament.external_id
             )
         })?;
 
@@ -77,12 +89,15 @@ pub async fn poll_once(
     let mut live_count = 0usize;
 
     for dto in &resp.matches {
-        match process_match(dto, rounds, team_index, match_repo, publisher).await {
+        match process_match(dto, ctx, match_repo, publisher).await {
             Ok(outcome) => {
                 if outcome.emitted_finished {
                     emitted += 1;
                 }
-                if matches!(outcome.status_after, MatchStatus::Live) {
+                if matches!(
+                    outcome.status_after,
+                    MatchStatus::InPlay | MatchStatus::Paused
+                ) {
                     live_count += 1;
                 }
             }
@@ -117,36 +132,49 @@ pub async fn poll_once(
 /// publish a `MatchFinished` if the upsert was a `→ finished` transition.
 async fn process_match(
     dto: &MatchDto,
-    rounds: &GlobalRounds,
-    team_index: &HashMap<String, Uuid>,
+    ctx: &IngestContext,
     match_repo: &PgMatchRepository,
     publisher: &Publisher,
 ) -> anyhow::Result<ProcessOutcome> {
-    let round_id = round_id_for_phase(dto, rounds);
+    let parent = parent_for_dto(dto, ctx).with_context(|| {
+        format!(
+            "no structural parent resolved for match upstream_id={}",
+            dto.id
+        )
+    })?;
     let external_id = dto.id.to_string();
 
     let prev = match_repo
-        .find_by_external(round_id, &external_id)
+        .find_by_external(&external_id)
         .await
         .map_err(shared::report_to_anyhow)
         .with_context(|| format!("looking up match external_id={external_id}"))?;
 
-    // Reuse the existing UUID on conflict so any FK already pointing at this
-    // match (e.g. `predictions.match_id`) stays valid.
+    // Reuse the existing UUID on conflict so any FK already pointing at
+    // this match (e.g. `predictions.match_id`) stays valid.
     let match_id = prev.as_ref().map(|p| p.id).unwrap_or_else(Uuid::new_v4);
 
-    let new_match = dto_to_match(dto, round_id, match_id, |code| {
-        team_index.get(code).copied()
+    let new_match = dto_to_match(dto, parent, match_id, |code| {
+        ctx.team_index.get(code).copied()
     })
     .with_context(|| format!("mapping match dto external_id={external_id}"))?;
+
+    // Skip the upsert when nothing changed since the last tick. Hot-path
+    // saving — at 60s ticks * ~104 matches the unconditional UPDATE writes
+    // tens of thousands of identical rows over the tournament window.
+    let status_after = new_match.status;
+    if prev.as_ref() == Some(&new_match) {
+        return Ok(ProcessOutcome {
+            emitted_finished: false,
+            status_after,
+        });
+    }
 
     match_repo
         .upsert(&new_match)
         .await
         .map_err(shared::report_to_anyhow)
         .with_context(|| format!("upserting match external_id={external_id}"))?;
-
-    let status_after = new_match.status;
 
     if !is_finished_transition(prev.as_ref(), &new_match) {
         return Ok(ProcessOutcome {
@@ -170,7 +198,6 @@ async fn process_match(
 
     let event = MatchFinished::V1(MatchFinishedV1 {
         match_id: new_match.id,
-        round_id: new_match.round_id,
         external_id: new_match.external_id.clone(),
         home_score,
         away_score,
@@ -192,10 +219,26 @@ async fn process_match(
     })
 }
 
-fn round_id_for_phase(dto: &MatchDto, rounds: &GlobalRounds) -> Uuid {
+/// Resolve the structural parent (`tournament_group_id` xor
+/// `knockout_phase_id`) for a match DTO using the bootstrap-built indexes.
+/// Returns `None` when the upstream stage / group cannot be mapped — the
+/// caller treats that as a soft skip with a warn.
+fn parent_for_dto(dto: &MatchDto, ctx: &IngestContext) -> Option<ParentRef> {
     match phase_from_stage(dto.stage.as_deref()) {
-        Phase::Group => rounds.group_stage.id,
-        Phase::Knockout => rounds.knockouts.id,
+        Phase::Group => {
+            let label = group_label_from_upstream(dto.group.as_deref())?;
+            ctx.group_index
+                .get(&label)
+                .copied()
+                .map(|id| ParentRef::TournamentGroup { id })
+        }
+        Phase::Knockout => {
+            let stage = knockout_stage_from_upstream(dto.stage.as_deref())?;
+            ctx.knockout_index
+                .get(&stage)
+                .copied()
+                .map(|id| ParentRef::KnockoutPhase { id })
+        }
     }
 }
 
@@ -208,9 +251,9 @@ pub fn build_team_index(teams: &[Team]) -> HashMap<String, Uuid> {
         .collect()
 }
 
-/// Detect whether `new` represents a fresh transition into `finished`. The
-/// `None` arm covers the boot-after-final case (we still want to emit so
-/// downstream scoring runs).
+/// Detect whether `new` represents a fresh transition into `finished`.
+/// The `None` arm covers the boot-after-final case (we still want to emit
+/// so downstream scoring runs).
 fn is_finished_transition(prev: Option<&Match>, new: &Match) -> bool {
     if new.status != MatchStatus::Finished {
         return false;
@@ -229,12 +272,11 @@ mod tests {
     fn match_with_status(status: MatchStatus) -> Match {
         Match {
             id: Uuid::nil(),
-            round_id: Uuid::nil(),
             external_id: "1".into(),
-            home_team: "ESP".into(),
-            away_team: "GER".into(),
-            home_flag: String::new(),
-            away_flag: String::new(),
+            tournament_group_id: Some(Uuid::nil()),
+            knockout_phase_id: None,
+            home_team_id: None,
+            away_team_id: None,
             kickoff_at: Utc.with_ymd_and_hms(2026, 6, 12, 18, 0, 0).unwrap(),
             home_score: Some(1),
             away_score: Some(0),
@@ -242,7 +284,6 @@ mod tests {
             et_away_score: None,
             pens_winner_team_id: None,
             status,
-            phase: Phase::Group,
         }
     }
 
@@ -266,8 +307,8 @@ mod tests {
     }
 
     #[test]
-    fn live_to_finished_is_a_transition() {
-        let prev = match_with_status(MatchStatus::Live);
+    fn in_play_to_finished_is_a_transition() {
+        let prev = match_with_status(MatchStatus::InPlay);
         let new = match_with_status(MatchStatus::Finished);
         assert!(is_finished_transition(Some(&prev), &new));
     }
@@ -287,9 +328,9 @@ mod tests {
     }
 
     #[test]
-    fn live_to_live_is_not_a_transition() {
-        let prev = match_with_status(MatchStatus::Live);
-        let new = match_with_status(MatchStatus::Live);
+    fn in_play_to_in_play_is_not_a_transition() {
+        let prev = match_with_status(MatchStatus::InPlay);
+        let new = match_with_status(MatchStatus::InPlay);
         assert!(!is_finished_transition(Some(&prev), &new));
     }
 
@@ -313,8 +354,6 @@ mod tests {
 
     #[test]
     fn build_team_index_uppercases_codes() {
-        // Domain stores codes already uppercased, but the helper guards
-        // against legacy / hand-inserted rows that slipped through.
         let teams = vec![
             Team {
                 id: Uuid::from_u128(1),

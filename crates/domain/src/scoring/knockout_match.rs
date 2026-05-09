@@ -17,12 +17,14 @@
 //! For non-draw regulation predictions the api will normally leave
 //! `advancement_winner_team_id` set to `Some(reg_winner)` so the scorer
 //! doesn't need to know about derivation. If it's `None` *and* the reg
-//! prediction is non-draw, we derive on the fly by mapping the home/away
-//! teams via `match.home_team` / `match.away_team` — but those columns are
-//! denormalized strings, so derivation needs the team UUIDs. To keep this
-//! function pure (no team-id lookups), we require the api to set
-//! `advancement_winner_team_id` to the correct value for non-draw reg
-//! predictions before persisting; here we only validate it, returning
+//! prediction is non-draw, we derive on the fly using the `home_team_id`
+//! and `away_team_id` parameters passed in. The `Match` struct carries
+//! these as `Option<Uuid>` (nullable for unresolved knockouts), but by
+//! scoring time the bracket has resolved so the api passes the resolved
+//! UUIDs explicitly. Keeping them as parameters keeps this function pure
+//! (no team-id lookups); the api is responsible for setting
+//! `advancement_winner_team_id` correctly for non-draw reg predictions
+//! before persisting — here we only validate it, returning
 //! `MissingAdvancementWinner` if it isn't set.
 
 use uuid::Uuid;
@@ -34,10 +36,10 @@ use super::{apply_repick_penalty, group_match::raw_reg_bucket, ScoringError, Sco
 /// Score a single knockout-stage match prediction.
 ///
 /// `home_team_id` and `away_team_id` are the team UUIDs for the match's
-/// home and away sides. They aren't on `Match` (which still carries the
-/// denormalized name/flag strings), so the caller resolves them from the
-/// `tournament_group_teams` / `teams` data and passes them in. This keeps
-/// the scoring function pure and self-contained.
+/// home and away sides. `Match` carries these as `Option<Uuid>` (nullable
+/// for unresolved knockouts), but by scoring time the bracket has
+/// resolved so the caller can unwrap and pass them in explicitly. This
+/// keeps the scoring function pure and self-contained.
 pub fn score_knockout_match(
     prediction: &Prediction,
     m: &Match,

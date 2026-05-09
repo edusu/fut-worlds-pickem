@@ -1,15 +1,19 @@
 use axum::Json;
+use domain::ParentRef;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::error::ApiError;
 
 /// Body of `POST /api/predictions`. The Mini App posts a batch of
-/// per-match predictions in one request to keep round-trips low.
+/// per-match predictions in one request to keep round-trips low. The
+/// parent (`tournament_group` or `knockout_phase`) is the unit the
+/// deadline lives on — the api looks it up and rejects the batch when
+/// state is `closed` or `deadline_at` is in the past.
 #[allow(dead_code)] // fields are read once handler logic lands
 #[derive(Debug, Deserialize)]
 pub struct SubmitPredictionsRequest {
-    pub round_id: Uuid,
+    pub parent: ParentRef,
     pub predictions: Vec<PredictionInput>,
 }
 
@@ -30,7 +34,8 @@ pub struct SubmitPredictionsResponse {
 pub async fn submit(
     Json(_body): Json<SubmitPredictionsRequest>,
 ) -> Result<Json<SubmitPredictionsResponse>, ApiError> {
-    // TODO: extract user id from validated init-data, validate round still
-    // open, upsert via PgPredictionRepository, publish PredictionsSubmitted.
+    // TODO: extract user id from validated init-data, load the parent,
+    // validate state == Open and deadline_at > now(), upsert via
+    // PgPredictionRepository, publish PredictionsSubmitted.
     todo!("routes::predictions::submit")
 }

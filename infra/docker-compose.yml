@@ -18,7 +18,11 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pickem} -d ${POSTGRES_DB:-pickem}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-pickem} -d ${POSTGRES_DB:-pickem}",
+        ]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -30,8 +34,8 @@ services:
     # -js enables JetStream (durable streams + consumers).
     command: ["-js", "-m", "8222"]
     ports:
-      - "4222:4222"   # client
-      - "8222:8222"   # monitoring
+      - "4222:4222" # client
+      - "8222:8222" # monitoring
     volumes:
       - nats-data:/data
 
@@ -43,8 +47,8 @@ services:
       COLLECTOR_OTLP_ENABLED: "true"
     ports:
       - "16686:16686" # UI
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
 
   # pgAdmin auto-connected to the Postgres above. Open http://localhost:5055
   # and the UI loads straight to the server tree — no login. The connection
