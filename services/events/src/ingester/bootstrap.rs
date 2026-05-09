@@ -18,21 +18,24 @@ use std::collections::HashMap;
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use domain::repository::{
-    KnockoutPhaseRepository, TournamentGroupRepository, TournamentRepository,
+    KnockoutPhaseRepository, TeamRepository, TournamentGroupRepository, TournamentRepository,
 };
 use domain::{
-    KnockoutPhase, KnockoutPhaseState, KnockoutStage, Tournament, TournamentGroup,
-    TournamentGroupState,
+    KnockoutPhase, KnockoutPhaseState, KnockoutStage, Team, Tournament, TournamentGroup,
+    TournamentGroupAssignment, TournamentGroupState,
 };
 use persistence::repositories::{
-    PgKnockoutPhaseRepository, PgTournamentGroupRepository, PgTournamentRepository,
+    PgKnockoutPhaseRepository, PgTeamRepository, PgTournamentGroupRepository,
+    PgTournamentRepository,
 };
 use sports_client::{Client as SportsClient, MatchDto};
 use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
 use super::football_data::{
+    flag_emoji_for_team, group_assignments_from_matches, group_assignments_from_standings,
     group_label_from_upstream, knockout_stage_from_upstream, parse_kickoff, phase_from_stage,
+    team_country_code,
 };
 
 /// Upstream competition code for the v1 tournament. football-data.org uses
@@ -366,6 +369,135 @@ const ALL_STAGES: &[KnockoutStage] = &[
     KnockoutStage::ThirdPlace,
     KnockoutStage::Final,
 ];
+
+/// Make sure `teams` and `tournament_group_teams` are populated for the v1
+/// tournament. Idempotent: when any team row already exists in the global
+/// catalog, the function assumes a previous run (CLI or boot) finished and
+/// returns the existing rows without contacting the upstream.
+///
+/// On first boot it fetches `/teams` + `/matches` (with `/standings` as a
+/// pre-tournament fallback) from football-data.org, upserts each team, and
+/// writes one `tournament_group_teams` row per `(group, country)` pair.
+/// Requires `structure.group_index` to be populated — call
+/// `ensure_tournament_structure` first.
+///
+/// Returns the canonical team list so the caller can build its resolver
+/// index without paying for a second `list_all` round-trip.
+#[instrument(skip(client, team_repo, group_repo, structure), fields(tournament_id = %tournament.id))]
+pub async fn ensure_teams_and_assignments_seeded(
+    client: &SportsClient,
+    team_repo: &PgTeamRepository,
+    group_repo: &PgTournamentGroupRepository,
+    tournament: &Tournament,
+    structure: &TournamentStructure,
+) -> anyhow::Result<Vec<Team>> {
+    let existing = team_repo
+        .list_all()
+        .await
+        .map_err(shared::report_to_anyhow)
+        .context("listing teams catalog")?;
+
+    if !existing.is_empty() {
+        info!(count = existing.len(), "teams already seeded");
+        return Ok(existing);
+    }
+
+    info!(competition = %tournament.external_id, "seeding teams from upstream");
+    let teams_payload = client
+        .get_competition_teams(&tournament.external_id)
+        .await
+        .map_err(shared::report_to_anyhow)
+        .with_context(|| format!("fetching teams for {}", tournament.external_id))?;
+
+    // Local code → id index built as we upsert, so the assignment step can
+    // resolve country codes without a per-team `find_by_country_code`.
+    let mut country_to_id: HashMap<String, Uuid> = HashMap::new();
+    for dto in &teams_payload.teams {
+        let Some(code) = team_country_code(dto) else {
+            warn!(name = %dto.name, "team has no country code, skipping");
+            continue;
+        };
+        let id = Uuid::new_v4();
+        let team = Team {
+            id,
+            name: dto.name.clone(),
+            flag_emoji: flag_emoji_for_team(dto),
+            country_code: code.clone(),
+        };
+        team_repo
+            .upsert(&team)
+            .await
+            .map_err(shared::report_to_anyhow)
+            .with_context(|| format!("upserting team {code}"))?;
+        country_to_id.insert(code, id);
+    }
+    info!(count = country_to_id.len(), "teams upserted");
+
+    // /matches is the primary source: it carries `group` on every group-
+    // stage fixture and is non-empty before the competition starts. We only
+    // hit /standings as a fallback because the upstream returns it empty
+    // until the tournament is live.
+    let matches_payload = client
+        .get_competition_matches(&tournament.external_id)
+        .await
+        .map_err(shared::report_to_anyhow)
+        .with_context(|| format!("fetching matches for {}", tournament.external_id))?;
+    let mut assignments = group_assignments_from_matches(&matches_payload.matches);
+    if assignments.is_empty() {
+        info!("no group-stage matches yet; falling back to /standings");
+        let standings = client
+            .get_competition_standings(&tournament.external_id)
+            .await
+            .map_err(shared::report_to_anyhow)
+            .with_context(|| format!("fetching standings for {}", tournament.external_id))?;
+        assignments = group_assignments_from_standings(&standings.standings);
+    }
+
+    let mut assigned = 0;
+    let mut skipped_missing_team = 0;
+    let mut skipped_missing_group = 0;
+    for (group_name, country_code) in &assignments {
+        let Some(team_id) = country_to_id.get(country_code) else {
+            warn!(
+                country_code,
+                group_name, "team not in /teams payload, skipping"
+            );
+            skipped_missing_team += 1;
+            continue;
+        };
+        let Some(group_id) = structure.group_index.get(group_name) else {
+            warn!(group_name, "group not in seeded structure, skipping");
+            skipped_missing_group += 1;
+            continue;
+        };
+        group_repo
+            .assign_team(&TournamentGroupAssignment {
+                tournament_id: tournament.id,
+                tournament_group_id: *group_id,
+                team_id: *team_id,
+            })
+            .await
+            .map_err(shared::report_to_anyhow)
+            .with_context(|| format!("assigning {country_code} to {group_name}"))?;
+        assigned += 1;
+    }
+
+    info!(
+        assignments = assigned,
+        missing_team = skipped_missing_team,
+        missing_group = skipped_missing_group,
+        "team-to-group assignments written"
+    );
+
+    // Re-read so the returned set reflects what is actually in Postgres
+    // (some upstream rows may have been skipped for lack of a country
+    // code, and a parallel writer could have appended in the meantime).
+    team_repo
+        .list_all()
+        .await
+        .map_err(shared::report_to_anyhow)
+        .context("re-reading teams after seed")
+}
 
 #[cfg(test)]
 mod tests {
