@@ -3,8 +3,10 @@
 //! Three concurrent loops:
 //!   1. `ingester` — every 5 minutes, pulls fixtures/results from the upstream
 //!      sports API and upserts them; emits MatchLive / MatchFinished.
-//!   2. `scheduler` — cron jobs that flip rounds to `closed` at deadline,
-//!      and emit RoundDeadlineApproaching / RoundClosed.
+//!   2. `scheduler` — cron jobs that flip parent windows
+//!      (`tournament_groups` and `knockout_phases`) to `closed` at their
+//!      deadline, and emit `SubmissionDeadlineApproaching` /
+//!      `SubmissionWindowClosed`.
 //!   3. `scorer` — subscribes to `pickem.match.finished` and writes
 //!      `points_awarded` for every prediction.
 

@@ -178,9 +178,16 @@ Copy `.env.example` to `.env` for local dev. The `justfile` has
    tables, even if a column reuses an existing table — colocates ownership with
    the schema change.
 3. `just migrate` to apply against the configured `DATABASE_URL`.
-4. After schema or query changes, run `just sqlx-prepare` if you've added
-   compile-time–verified queries, and commit the resulting `.sqlx/` cache so CI
-   can build offline.
+4. After **any** schema or query change, run `just sqlx-prepare` and commit
+   the resulting `.sqlx/` cache. The persistence layer uses `sqlx::query!` /
+   `query_as!` macros (compile-time validation against the live schema) for
+   every repo whose SQL is a literal string, so the cache is required to
+   build offline. CI runs `cargo sqlx prepare --check` inside `just lint`
+   and fails if the committed cache disagrees with the source. The two
+   exceptions still on `sqlx::query()` (no compile-time validation) are
+   `tournament_groups.rs`, `knockout_phases.rs`, and `scoring_rules.rs` —
+   those build their SQL via `format!("{SELECT_*_COLUMNS} ...")` and the
+   macro requires literal strings.
 
 ## How to start the whole stack locally
 

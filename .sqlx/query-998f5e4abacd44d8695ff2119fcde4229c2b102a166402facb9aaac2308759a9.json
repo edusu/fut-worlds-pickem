@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO teams (id, name, flag_emoji, country_code)\n            VALUES ($1, $2, $3, $4)\n            ON CONFLICT (country_code) DO UPDATE\n            SET name = EXCLUDED.name,\n                flag_emoji = EXCLUDED.flag_emoji\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "998f5e4abacd44d8695ff2119fcde4229c2b102a166402facb9aaac2308759a9"
+}

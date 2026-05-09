@@ -4,8 +4,9 @@
 //! schedule. Keep job bodies small — call out into other modules for the real
 //! work so jobs stay testable.
 
-// TODO: register jobs:
-//   - every minute: scan rounds with deadline_at within the next 60 minutes
-//     and not yet flagged "approaching"; emit RoundDeadlineApproaching.
-//   - every minute: scan rounds with deadline_at <= now and state='open',
-//     flip to 'closed' and emit RoundClosed.
+// TODO: register jobs (parent windows = tournament_groups + knockout_phases):
+//   - every minute: scan parent windows with deadline_at within the next 60
+//     minutes and not yet flagged "approaching"; emit
+//     `SubmissionDeadlineApproaching` (carrying the parent's `ParentRef`).
+//   - every minute: scan parent windows with deadline_at <= now and
+//     state='open', flip to 'closed' and emit `SubmissionWindowClosed`.

@@ -86,10 +86,11 @@ front-build:
 test:
     cargo test --workspace
 
-# Lint Rust code (clippy + rustfmt)
+# Lint Rust code (clippy + rustfmt + sqlx offline cache)
 lint:
     cargo clippy --workspace --all-targets -- -D warnings
     cargo fmt --all -- --check
+    cargo sqlx prepare --workspace --check -- --all-targets
 
 # Auto-format all Rust code
 fmt:

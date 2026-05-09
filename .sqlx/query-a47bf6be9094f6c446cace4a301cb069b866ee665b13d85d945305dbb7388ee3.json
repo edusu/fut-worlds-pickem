@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO users (telegram_id, username, first_name, language_code)\n            VALUES ($1, $2, $3, $4)\n            ON CONFLICT (telegram_id) DO UPDATE SET\n                username = EXCLUDED.username,\n                first_name = EXCLUDED.first_name,\n                language_code = EXCLUDED.language_code\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a47bf6be9094f6c446cace4a301cb069b866ee665b13d85d945305dbb7388ee3"
+}

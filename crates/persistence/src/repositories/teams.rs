@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use domain::repository::{RepoResult, TeamRepository};
 use domain::{RepositoryError, Team};
 use error_stack::{Report, ResultExt};
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use uuid::Uuid;
 
 /// Postgres-backed `TeamRepository`.
@@ -32,7 +32,7 @@ impl TeamRepository for PgTeamRepository {
     /// touch `id` on conflict so any FK that already references the existing
     /// row stays valid.
     async fn upsert(&self, team: &Team) -> RepoResult<()> {
-        sqlx::query(
+        sqlx::query!(
             r#"
             INSERT INTO teams (id, name, flag_emoji, country_code)
             VALUES ($1, $2, $3, $4)
@@ -40,11 +40,11 @@ impl TeamRepository for PgTeamRepository {
             SET name = EXCLUDED.name,
                 flag_emoji = EXCLUDED.flag_emoji
             "#,
+            team.id,
+            team.name,
+            team.flag_emoji,
+            team.country_code,
         )
-        .bind(team.id)
-        .bind(&team.name)
-        .bind(&team.flag_emoji)
-        .bind(&team.country_code)
         .execute(&self.pool)
         .await
         .map_err(|e| {
@@ -66,42 +66,52 @@ impl TeamRepository for PgTeamRepository {
     }
 
     async fn find(&self, id: Uuid) -> RepoResult<Option<Team>> {
-        let row = sqlx::query(
+        let row = sqlx::query!(
             r#"
             SELECT id, name, flag_emoji, country_code
             FROM teams
             WHERE id = $1
             "#,
+            id,
         )
-        .bind(id)
         .fetch_optional(&self.pool)
         .await
         .change_context(RepositoryError::Backend)?;
 
-        Ok(row.map(row_to_team))
+        Ok(row.map(|r| Team {
+            id: r.id,
+            name: r.name,
+            flag_emoji: r.flag_emoji,
+            country_code: r.country_code,
+        }))
     }
 
     /// Look a team up by its country_code (3-letter FIFA / IOC). Used by
     /// the seed CLI to resolve DTOs to existing rows without paying the
     /// cost of loading every row first.
     async fn find_by_country_code(&self, code: &str) -> RepoResult<Option<Team>> {
-        let row = sqlx::query(
+        let row = sqlx::query!(
             r#"
             SELECT id, name, flag_emoji, country_code
             FROM teams
             WHERE country_code = $1
             "#,
+            code,
         )
-        .bind(code)
         .fetch_optional(&self.pool)
         .await
         .change_context(RepositoryError::Backend)?;
 
-        Ok(row.map(row_to_team))
+        Ok(row.map(|r| Team {
+            id: r.id,
+            name: r.name,
+            flag_emoji: r.flag_emoji,
+            country_code: r.country_code,
+        }))
     }
 
     async fn list_all(&self) -> RepoResult<Vec<Team>> {
-        let rows = sqlx::query(
+        let rows = sqlx::query!(
             r#"
             SELECT id, name, flag_emoji, country_code
             FROM teams
@@ -112,15 +122,14 @@ impl TeamRepository for PgTeamRepository {
         .await
         .change_context(RepositoryError::Backend)?;
 
-        Ok(rows.into_iter().map(row_to_team).collect())
-    }
-}
-
-fn row_to_team(row: sqlx::postgres::PgRow) -> Team {
-    Team {
-        id: row.get("id"),
-        name: row.get("name"),
-        flag_emoji: row.get("flag_emoji"),
-        country_code: row.get("country_code"),
+        Ok(rows
+            .into_iter()
+            .map(|r| Team {
+                id: r.id,
+                name: r.name,
+                flag_emoji: r.flag_emoji,
+                country_code: r.country_code,
+            })
+            .collect())
     }
 }

@@ -28,8 +28,9 @@ logs/
 coverage/
 *.profraw
 
-# Sqlx offline cache (kept only if explicitly committed)
-.sqlx/
+# Sqlx offline cache is committed: it is required for offline compilation
+# (CI builds with SQLX_OFFLINE=true). Regenerate via `just sqlx-prepare`
+# whenever a query or the schema changes.
 
 ROADMAP.md
 docs/

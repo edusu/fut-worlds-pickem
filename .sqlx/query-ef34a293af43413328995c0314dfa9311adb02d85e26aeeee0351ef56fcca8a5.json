@@ -1,0 +1,94 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, external_id,\n                   tournament_group_id, knockout_phase_id,\n                   home_team_id, away_team_id,\n                   kickoff_at,\n                   home_score, away_score,\n                   et_home_score, et_away_score, pens_winner_team_id,\n                   status\n            FROM matches\n            WHERE id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "external_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "tournament_group_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "knockout_phase_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "home_team_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "away_team_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 6,
+        "name": "kickoff_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "home_score",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "away_score",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
+        "name": "et_home_score",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 10,
+        "name": "et_away_score",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 11,
+        "name": "pens_winner_team_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 12,
+        "name": "status",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "ef34a293af43413328995c0314dfa9311adb02d85e26aeeee0351ef56fcca8a5"
+}

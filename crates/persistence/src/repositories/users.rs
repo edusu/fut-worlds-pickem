@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use domain::repository::{RepoResult, UserRepository};
 use domain::{RepositoryError, TelegramUserId, User};
 use error_stack::ResultExt;
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 
 /// Postgres-backed `UserRepository`.
 pub struct PgUserRepository {
@@ -22,7 +22,7 @@ impl UserRepository for PgUserRepository {
     /// Telegram's contract (the user can change name or language, but the
     /// registration moment is fixed).
     async fn upsert(&self, user: &User) -> RepoResult<()> {
-        sqlx::query(
+        sqlx::query!(
             r#"
             INSERT INTO users (telegram_id, username, first_name, language_code)
             VALUES ($1, $2, $3, $4)
@@ -31,11 +31,11 @@ impl UserRepository for PgUserRepository {
                 first_name = EXCLUDED.first_name,
                 language_code = EXCLUDED.language_code
             "#,
+            user.telegram_id.0,
+            user.username.as_deref(),
+            user.first_name,
+            user.language_code.as_deref(),
         )
-        .bind(user.telegram_id.0)
-        .bind(user.username.as_deref())
-        .bind(&user.first_name)
-        .bind(user.language_code.as_deref())
         .execute(&self.pool)
         .await
         .change_context(RepositoryError::Backend)?;
@@ -46,24 +46,24 @@ impl UserRepository for PgUserRepository {
     /// Look up a user by Telegram id. `None` means the user has never
     /// interacted with the bot.
     async fn find(&self, id: TelegramUserId) -> RepoResult<Option<User>> {
-        let row = sqlx::query(
+        let row = sqlx::query!(
             r#"
             SELECT telegram_id, username, first_name, language_code, created_at
             FROM users
             WHERE telegram_id = $1
             "#,
+            id.0,
         )
-        .bind(id.0)
         .fetch_optional(&self.pool)
         .await
         .change_context(RepositoryError::Backend)?;
 
-        Ok(row.map(|row| User {
-            telegram_id: TelegramUserId(row.get("telegram_id")),
-            username: row.get("username"),
-            first_name: row.get("first_name"),
-            language_code: row.get("language_code"),
-            created_at: row.get("created_at"),
+        Ok(row.map(|r| User {
+            telegram_id: TelegramUserId(r.telegram_id),
+            username: r.username,
+            first_name: r.first_name,
+            language_code: r.language_code,
+            created_at: r.created_at,
         }))
     }
 }

@@ -14,8 +14,9 @@ pub async fn run(_config: Config, _pool: PgPool, nats: async_nats::Client) -> an
 
     while let Some(_event) = sub.next().await {
         // TODO: load predictions for the match, compute points using the
-        // group's scoring rule, persist via PgPredictionRepository, then
-        // publish RoundScored if every match in the round is now scored.
+        // pickem's scoring rule, persist via PgPredictionRepository, then
+        // publish `SubmissionWindowScored` if every match in the parent
+        // window (tournament_group or knockout_phase) is now scored.
         todo!("scorer::run process event")
     }
     Ok(())

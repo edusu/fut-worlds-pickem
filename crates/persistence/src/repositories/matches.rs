@@ -13,10 +13,11 @@
 //! so a global UNIQUE is sufficient.
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use domain::repository::{MatchRepository, RepoResult};
 use domain::{Match, MatchStatus, RepositoryError};
 use error_stack::{Report, ResultExt};
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use uuid::Uuid;
 
 use super::mappers::classify_write_error;
@@ -29,6 +30,48 @@ pub struct PgMatchRepository {
 impl PgMatchRepository {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+}
+
+/// Mirror of the `matches` row at the schema level, used by the
+/// `query_as!` SELECTs. Centralises the row → domain conversion (notably
+/// the `status: String` → `MatchStatus` parse) in `into_domain`.
+struct MatchRow {
+    id: Uuid,
+    external_id: String,
+    tournament_group_id: Option<Uuid>,
+    knockout_phase_id: Option<Uuid>,
+    home_team_id: Option<Uuid>,
+    away_team_id: Option<Uuid>,
+    kickoff_at: DateTime<Utc>,
+    home_score: Option<i32>,
+    away_score: Option<i32>,
+    et_home_score: Option<i32>,
+    et_away_score: Option<i32>,
+    pens_winner_team_id: Option<Uuid>,
+    status: String,
+}
+
+impl MatchRow {
+    /// Surfaces `RepositoryError::Backend` if the `status` column carries a
+    /// value outside the `matches_status_valid` CHECK set — that would
+    /// indicate schema↔enum drift inside our own code.
+    fn into_domain(self) -> RepoResult<Match> {
+        Ok(Match {
+            id: self.id,
+            external_id: self.external_id,
+            tournament_group_id: self.tournament_group_id,
+            knockout_phase_id: self.knockout_phase_id,
+            home_team_id: self.home_team_id,
+            away_team_id: self.away_team_id,
+            kickoff_at: self.kickoff_at,
+            home_score: self.home_score,
+            away_score: self.away_score,
+            et_home_score: self.et_home_score,
+            et_away_score: self.et_away_score,
+            pens_winner_team_id: self.pens_winner_team_id,
+            status: status_from_str(&self.status)?,
+        })
     }
 }
 
@@ -50,7 +93,7 @@ impl MatchRepository for PgMatchRepository {
     /// (parent XOR, distinct teams, ET pair invariant, status enum, pens
     /// pointing at an unknown team).
     async fn upsert(&self, match_: &Match) -> RepoResult<()> {
-        sqlx::query(
+        sqlx::query!(
             r#"
             INSERT INTO matches (
                 id, external_id,
@@ -75,20 +118,20 @@ impl MatchRepository for PgMatchRepository {
                 pens_winner_team_id = EXCLUDED.pens_winner_team_id,
                 status              = EXCLUDED.status
             "#,
+            match_.id,
+            match_.external_id,
+            match_.tournament_group_id,
+            match_.knockout_phase_id,
+            match_.home_team_id,
+            match_.away_team_id,
+            match_.kickoff_at,
+            match_.home_score,
+            match_.away_score,
+            match_.et_home_score,
+            match_.et_away_score,
+            match_.pens_winner_team_id,
+            status_to_str(match_.status),
         )
-        .bind(match_.id)
-        .bind(&match_.external_id)
-        .bind(match_.tournament_group_id)
-        .bind(match_.knockout_phase_id)
-        .bind(match_.home_team_id)
-        .bind(match_.away_team_id)
-        .bind(match_.kickoff_at)
-        .bind(match_.home_score)
-        .bind(match_.away_score)
-        .bind(match_.et_home_score)
-        .bind(match_.et_away_score)
-        .bind(match_.pens_winner_team_id)
-        .bind(status_to_str(match_.status))
         .execute(&self.pool)
         .await
         .map_err(classify_write_error)?;
@@ -97,7 +140,8 @@ impl MatchRepository for PgMatchRepository {
     }
 
     async fn list_by_tournament_group(&self, group_id: Uuid) -> RepoResult<Vec<Match>> {
-        let rows = sqlx::query(
+        let rows = sqlx::query_as!(
+            MatchRow,
             r#"
             SELECT id, external_id,
                    tournament_group_id, knockout_phase_id,
@@ -110,17 +154,18 @@ impl MatchRepository for PgMatchRepository {
             WHERE tournament_group_id = $1
             ORDER BY kickoff_at ASC
             "#,
+            group_id,
         )
-        .bind(group_id)
         .fetch_all(&self.pool)
         .await
         .change_context(RepositoryError::Backend)?;
 
-        rows.into_iter().map(row_to_match).collect()
+        rows.into_iter().map(MatchRow::into_domain).collect()
     }
 
     async fn list_by_knockout_phase(&self, phase_id: Uuid) -> RepoResult<Vec<Match>> {
-        let rows = sqlx::query(
+        let rows = sqlx::query_as!(
+            MatchRow,
             r#"
             SELECT id, external_id,
                    tournament_group_id, knockout_phase_id,
@@ -133,17 +178,18 @@ impl MatchRepository for PgMatchRepository {
             WHERE knockout_phase_id = $1
             ORDER BY kickoff_at ASC
             "#,
+            phase_id,
         )
-        .bind(phase_id)
         .fetch_all(&self.pool)
         .await
         .change_context(RepositoryError::Backend)?;
 
-        rows.into_iter().map(row_to_match).collect()
+        rows.into_iter().map(MatchRow::into_domain).collect()
     }
 
     async fn find(&self, id: Uuid) -> RepoResult<Option<Match>> {
-        let row = sqlx::query(
+        let row = sqlx::query_as!(
+            MatchRow,
             r#"
             SELECT id, external_id,
                    tournament_group_id, knockout_phase_id,
@@ -155,13 +201,13 @@ impl MatchRepository for PgMatchRepository {
             FROM matches
             WHERE id = $1
             "#,
+            id,
         )
-        .bind(id)
         .fetch_optional(&self.pool)
         .await
         .change_context(RepositoryError::Backend)?;
 
-        row.map(row_to_match).transpose()
+        row.map(MatchRow::into_domain).transpose()
     }
 }
 
@@ -171,7 +217,8 @@ impl PgMatchRepository {
     /// transitions (`scheduled → finished`) and emit `MatchFinished::V1`
     /// exactly once per transition rather than on every poll.
     pub async fn find_by_external(&self, external_id: &str) -> RepoResult<Option<Match>> {
-        let row = sqlx::query(
+        let row = sqlx::query_as!(
+            MatchRow,
             r#"
             SELECT id, external_id,
                    tournament_group_id, knockout_phase_id,
@@ -183,36 +230,14 @@ impl PgMatchRepository {
             FROM matches
             WHERE external_id = $1
             "#,
+            external_id,
         )
-        .bind(external_id)
         .fetch_optional(&self.pool)
         .await
         .change_context(RepositoryError::Backend)?;
 
-        row.map(row_to_match).transpose()
+        row.map(MatchRow::into_domain).transpose()
     }
-}
-
-/// Convert a row into a domain `Match`, surfacing typed errors when the
-/// `status` column holds an unrecognised string (schema↔enum drift = bug
-/// in our code, mapped to `Backend`).
-fn row_to_match(row: sqlx::postgres::PgRow) -> RepoResult<Match> {
-    let status_raw: String = row.get("status");
-    Ok(Match {
-        id: row.get("id"),
-        external_id: row.get("external_id"),
-        tournament_group_id: row.get("tournament_group_id"),
-        knockout_phase_id: row.get("knockout_phase_id"),
-        home_team_id: row.get("home_team_id"),
-        away_team_id: row.get("away_team_id"),
-        kickoff_at: row.get("kickoff_at"),
-        home_score: row.get("home_score"),
-        away_score: row.get("away_score"),
-        et_home_score: row.get("et_home_score"),
-        et_away_score: row.get("et_away_score"),
-        pens_winner_team_id: row.get("pens_winner_team_id"),
-        status: status_from_str(&status_raw)?,
-    })
 }
 
 /// Canonical strings for `MatchStatus`. Mirror the `matches_status_valid`

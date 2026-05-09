@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO matches (\n                id, external_id,\n                tournament_group_id, knockout_phase_id,\n                home_team_id, away_team_id,\n                kickoff_at,\n                home_score, away_score,\n                et_home_score, et_away_score, pens_winner_team_id,\n                status\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)\n            ON CONFLICT (external_id) DO UPDATE\n            SET tournament_group_id = EXCLUDED.tournament_group_id,\n                knockout_phase_id   = EXCLUDED.knockout_phase_id,\n                home_team_id        = EXCLUDED.home_team_id,\n                away_team_id        = EXCLUDED.away_team_id,\n                kickoff_at          = EXCLUDED.kickoff_at,\n                home_score          = EXCLUDED.home_score,\n                away_score          = EXCLUDED.away_score,\n                et_home_score       = EXCLUDED.et_home_score,\n                et_away_score       = EXCLUDED.et_away_score,\n                pens_winner_team_id = EXCLUDED.pens_winner_team_id,\n                status              = EXCLUDED.status\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8307cdcaa89614503d993e3fc5358df89466f50b9981da22ce2842b02b0e72cf"
+}
