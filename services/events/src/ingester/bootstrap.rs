@@ -38,12 +38,7 @@ use super::football_data::{
     team_country_code,
 };
 
-/// Upstream competition code for the v1 tournament. football-data.org uses
-/// `"WC"` for the FIFA World Cup; the CLI mirrors the same default in its
-/// `--competition` argument. Hardcoded here because v1 only ever targets
-/// the World Cup; promoting this to config is a low-cost follow-up the day
-/// a second tournament shows up.
-pub const V1_TOURNAMENT_EXTERNAL_ID: &str = "WC";
+pub use shared::V1_TOURNAMENT_EXTERNAL_ID;
 
 /// Human-facing name for the v1 tournament. Stored in `tournaments.name`
 /// and shown in operational tooling. Deliberately uses the Spanish form to

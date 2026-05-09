@@ -116,6 +116,26 @@ impl GroupRepository for PgGroupRepository {
         Ok(())
     }
 
+    /// Whether the user is a member of the pickem. Single `EXISTS` so the
+    /// query stays O(1) regardless of roster size.
+    async fn is_member(&self, group_id: Uuid, user_id: TelegramUserId) -> RepoResult<bool> {
+        let row = sqlx::query!(
+            r#"
+            SELECT EXISTS (
+                SELECT 1 FROM group_members
+                WHERE group_id = $1 AND user_id = $2
+            ) AS "exists!"
+            "#,
+            group_id,
+            user_id.0,
+        )
+        .fetch_one(&self.pool)
+        .await
+        .change_context(RepositoryError::Backend)?;
+
+        Ok(row.exists)
+    }
+
     /// List the members of a pickem in join order — used by `/ranking` to
     /// know who participates before pulling per-user point totals.
     async fn list_members(&self, group_id: Uuid) -> RepoResult<Vec<GroupMember>> {

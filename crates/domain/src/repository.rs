@@ -42,6 +42,10 @@ pub trait GroupRepository: Send + Sync {
 
     /// Members of a pickem in join order.
     async fn list_members(&self, group_id: Uuid) -> RepoResult<Vec<GroupMember>>;
+
+    /// Whether the given user is a member of the given pickem. Used by the
+    /// API to gate per-pickem requests without loading the whole roster.
+    async fn is_member(&self, group_id: Uuid, user_id: TelegramUserId) -> RepoResult<bool>;
 }
 
 #[async_trait]

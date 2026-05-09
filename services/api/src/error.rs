@@ -24,6 +24,10 @@ pub enum ApiError {
     /// 401 — the request lacks a valid `X-Telegram-Init-Data` header.
     #[error("unauthorized")]
     Unauthorized,
+    /// 403 — the caller is authenticated but not allowed to act on the
+    /// addressed pickem (typically: not a member).
+    #[error("forbidden")]
+    Forbidden,
     /// 404 — the addressed resource does not exist.
     #[error("not found")]
     NotFound,
@@ -39,6 +43,7 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, code) = match &self {
             ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized"),
+            ApiError::Forbidden => (StatusCode::FORBIDDEN, "forbidden"),
             ApiError::NotFound => (StatusCode::NOT_FOUND, "not_found"),
             ApiError::BadRequest(_) => (StatusCode::BAD_REQUEST, "bad_request"),
             ApiError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error"),
