@@ -25,6 +25,7 @@ use persistence::repositories::{
     PgKnockoutPhaseRepository, PgMatchRepository, PgTeamRepository, PgTournamentGroupRepository,
     PgTournamentRepository,
 };
+use rust_utils::network::nats::NatsClient;
 use shared::Config;
 use sports_client::Client as SportsClient;
 use sqlx::PgPool;
@@ -36,7 +37,7 @@ const TICK_SLOW: Duration = Duration::from_secs(300);
 /// Run the periodic ingestion loop forever. Returns `Err` only if the
 /// one-shot bootstrap fails; per-tick failures are logged and the loop
 /// continues with the slow back-off interval.
-pub async fn run(config: Config, pool: PgPool, nats: async_nats::Client) -> anyhow::Result<()> {
+pub async fn run(config: Config, pool: PgPool, nats: NatsClient) -> anyhow::Result<()> {
     let tournament_repo = PgTournamentRepository::new(pool.clone());
     let group_repo = PgTournamentGroupRepository::new(pool.clone());
     let phase_repo = PgKnockoutPhaseRepository::new(pool.clone());

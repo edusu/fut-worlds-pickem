@@ -1,7 +1,12 @@
+use std::time::Duration;
+
 use error_stack::ResultExt;
 use rust_utils::secret::Secret;
 
 use crate::error::{SharedError, SharedResult};
+
+/// Default cadence for the events scorer's reconcile loop.
+const DEFAULT_SCORER_RECONCILE_INTERVAL_SECS: u64 = 600;
 
 /// Configuration shared across services. Each service reads it from env vars
 /// at startup; values come from `.env` in development and from the
@@ -36,6 +41,11 @@ pub struct Config {
     pub miniapp_origin: String,
     pub otel_endpoint: Option<String>,
     pub otel_service_namespace: Option<String>,
+    /// Cadence for the events scorer's reconcile loop, in seconds.
+    /// `None` falls back to [`DEFAULT_SCORER_RECONCILE_INTERVAL_SECS`].
+    /// Use [`Config::scorer_reconcile_interval`] to consume — it
+    /// already handles the default.
+    pub scorer_reconcile_interval_secs: Option<u64>,
 }
 
 impl Config {
@@ -57,7 +67,17 @@ impl Config {
             miniapp_origin: optional_with_default("MINIAPP_ORIGIN", "http://localhost:5173"),
             otel_endpoint: optional("OTEL_EXPORTER_OTLP_ENDPOINT"),
             otel_service_namespace: optional("OTEL_SERVICE_NAMESPACE"),
+            scorer_reconcile_interval_secs: optional_u64("SCORER_RECONCILE_INTERVAL_SECS")?,
         })
+    }
+
+    /// Resolve the configured scorer reconcile interval, applying the
+    /// 600s default when the env var is unset.
+    pub fn scorer_reconcile_interval(&self) -> Duration {
+        Duration::from_secs(
+            self.scorer_reconcile_interval_secs
+                .unwrap_or(DEFAULT_SCORER_RECONCILE_INTERVAL_SECS),
+        )
     }
 }
 
@@ -79,4 +99,18 @@ fn optional(key: &'static str) -> Option<String> {
 /// to the key in the call site.
 fn optional_with_default(key: &'static str, default: &str) -> String {
     optional(key).unwrap_or_else(|| default.to_string())
+}
+
+/// Read an optional env var as a `u64`. Returns `None` when unset or
+/// empty; surfaces parse failures as `SharedError::MissingConfig`
+/// (with the env-var name attached) so a typo'd value fails closed
+/// instead of silently falling back to the default.
+fn optional_u64(key: &'static str) -> SharedResult<Option<u64>> {
+    let Some(raw) = optional(key) else {
+        return Ok(None);
+    };
+    raw.parse::<u64>().map(Some).map_err(|_| {
+        error_stack::Report::new(SharedError::MissingConfig)
+            .attach(format!("env var {key} not parseable as u64: {raw}"))
+    })
 }

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT points_awarded, (\n              SELECT state FROM tournament_groups WHERE id = $1\n           ) AS \"group_state!\"\n           FROM group_standings_predictions WHERE id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "points_awarded",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "group_state!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true,
+      null
+    ]
+  },
+  "hash": "e561f9a193f6c3c10eeca6b986615aeeb0619e41153dc6a620a7e8d8456a0df6"
+}

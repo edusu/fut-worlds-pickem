@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE tournament_groups SET state = 'scored' WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9b6218d650e62f1ac5e64111ef626c0c64b5bf5a6d785a72fd6d92e8e91d9c16"
+}

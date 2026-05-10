@@ -1,30 +1,30 @@
 use error_stack::ResultExt;
+use rust_utils::network::nats::NatsClient;
 use serde::Serialize;
 use tracing::instrument;
 
 use crate::{MessagingError, MessagingResult};
 
-/// Thin publisher around a NATS client. Holds the client by value so it can
-/// be cloned cheaply across tasks (the client itself is a handle).
+/// Thin publisher around a `NatsClient`. The underlying client is
+/// reference-counted, so this struct is cheaply cloneable across tasks.
 #[derive(Clone)]
 pub struct Publisher {
-    client: async_nats::Client,
+    client: NatsClient,
 }
 
 impl Publisher {
-    /// Wrap an existing NATS client.
-    pub fn new(client: async_nats::Client) -> Self {
+    /// Wrap an existing `NatsClient`.
+    pub fn new(client: NatsClient) -> Self {
         Self { client }
     }
 
     /// Serialize `event` as JSON and publish it to `topic`.
     ///
-    /// JSON is used (not protobuf) for ergonomics and observability — payloads
-    /// stay human-readable in the NATS CLI and Jaeger spans. If volume becomes
-    /// a concern, swap encoders here without touching call sites.
-    ///
-    /// Errors carry the originating cause attached to the report chain plus
-    /// the topic name as a printable attachment.
+    /// Goes through `NatsClient::inner` for the raw bytes-level publish
+    /// because the JSON encoding lives here (so the error taxonomy stays
+    /// inside `MessagingError`). When JetStream lands the bytes-level
+    /// access stays the same — only the underlying transport semantics
+    /// change.
     #[instrument(skip(self, event), fields(topic = %topic))]
     pub async fn publish<T>(&self, topic: &str, event: &T) -> MessagingResult<()>
     where
@@ -35,6 +35,7 @@ impl Publisher {
             .attach_with(|| format!("topic = {topic}"))?;
 
         self.client
+            .inner()
             .publish(topic.to_string(), payload.into())
             .await
             .change_context(MessagingError::Nats)

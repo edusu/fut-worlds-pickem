@@ -15,6 +15,7 @@ use std::time::Duration;
 use app_state::AppState;
 use axum::http::{header, HeaderName, HeaderValue, Method};
 use axum::Router;
+use rust_utils::network::nats::{NatsClient, NatsConnectOptions};
 use shared::Config;
 use tower_http::cors::CorsLayer;
 use tracing::info;
@@ -29,7 +30,9 @@ async fn main() -> anyhow::Result<()> {
     )?;
 
     let pool = persistence::init_pool(config.database_url.expose()).await?;
-    let _nats = async_nats::connect(&config.nats_url).await?;
+    let _nats = NatsClient::connect(NatsConnectOptions::new(config.nats_url.as_str()))
+        .await
+        .map_err(shared::report_to_anyhow)?;
 
     let secret_key = Arc::new(middleware::auth::derive_secret_key(
         config.telegram_bot_token.expose(),

@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT tg.id AS \"id!\"\n        FROM tournament_groups tg\n        WHERE tg.state = 'open'\n          AND NOT EXISTS (\n              SELECT 1 FROM matches m\n              WHERE m.tournament_group_id = tg.id\n                AND m.status <> 'finished'\n          )\n          AND EXISTS (\n              SELECT 1 FROM matches m\n              WHERE m.tournament_group_id = tg.id\n          )\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d6f42f2544ff781eca6cf9d3fdd84abbd1e0827f46d14f690d0dae29d7d5c508"
+}

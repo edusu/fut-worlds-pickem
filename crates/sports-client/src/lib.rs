@@ -21,3 +21,31 @@ pub use dto::{
     WinnerDto,
 };
 pub use error::{SportsClientError, SportsClientReport, SportsResult};
+
+/// Trait carved out of [`Client`] for the operations the events
+/// scorer needs at runtime. Exists to let integration tests inject a
+/// fake without spinning up an HTTP mock; the real `Client` carries
+/// the production `reqwest` + retry + rate-limit stack.
+///
+/// Only the methods the scorer touches today are surfaced. If a
+/// future scorer responsibility needs another endpoint, add it here
+/// alongside the implementation on `Client`.
+#[async_trait::async_trait]
+pub trait SportsClientLike: Send + Sync {
+    /// `/competitions/{code}/standings` — used by
+    /// `dispatch_group_standings` and `dispatch_best_thirds`.
+    async fn get_competition_standings(
+        &self,
+        competition_code: &str,
+    ) -> SportsResult<CompetitionStandings>;
+}
+
+#[async_trait::async_trait]
+impl SportsClientLike for Client {
+    async fn get_competition_standings(
+        &self,
+        competition_code: &str,
+    ) -> SportsResult<CompetitionStandings> {
+        Client::get_competition_standings(self, competition_code).await
+    }
+}

@@ -1,11 +1,12 @@
 use messaging::{topics, NotificationRequested, Subscriber};
+use rust_utils::network::nats::NatsClient;
 use shared::Config;
 use tracing::info;
 
 /// Subscribe to `pickem.notification.requested` and translate each payload
 /// into a Telegram message via the `telegram-client` trait. The bot is the
 /// ONLY consumer of this topic — the rule is enforced socially, not in code.
-pub async fn run(_config: Config, nats: async_nats::Client) -> anyhow::Result<()> {
+pub async fn run(_config: Config, nats: NatsClient) -> anyhow::Result<()> {
     let mut sub: Subscriber<NotificationRequested> =
         Subscriber::subscribe(&nats, topics::NOTIFICATION_REQUESTED)
             .await

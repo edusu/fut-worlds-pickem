@@ -136,6 +136,36 @@ impl GroupRepository for PgGroupRepository {
         Ok(row.exists)
     }
 
+    /// Every pickem currently registered, ordered by `created_at` ASC.
+    /// Used by the events scorer to fan standings / best-thirds scoring
+    /// across pickems at end-of-phase. The result set is bounded by the
+    /// number of Telegram chats hosting a pickem, so a plain `SELECT`
+    /// without pagination is fine.
+    async fn list_all(&self) -> RepoResult<Vec<Group>> {
+        let rows = sqlx::query!(
+            r#"
+            SELECT id, telegram_chat_id, name, owner_id, scoring_rule_id, created_at
+            FROM groups
+            ORDER BY created_at ASC
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .change_context(RepositoryError::Backend)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| Group {
+                id: r.id,
+                telegram_chat_id: TelegramChatId(r.telegram_chat_id),
+                name: r.name,
+                owner_id: TelegramUserId(r.owner_id),
+                scoring_rule_id: r.scoring_rule_id,
+                created_at: r.created_at,
+            })
+            .collect())
+    }
+
     /// List the members of a pickem in join order — used by `/ranking` to
     /// know who participates before pulling per-user point totals.
     async fn list_members(&self, group_id: Uuid) -> RepoResult<Vec<GroupMember>> {

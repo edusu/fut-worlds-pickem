@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO tournament_groups (id, tournament_id, name, deadline_at, state)\n           VALUES ($1, $2, $3, $4, 'open')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2308af2c9ca99da6a371a08aa0aa4387b0705fb9e4e54e40ffe5f59c10fc6c31"
+}

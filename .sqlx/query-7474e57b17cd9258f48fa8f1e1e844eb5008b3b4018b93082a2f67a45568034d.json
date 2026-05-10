@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO matches (\n                id, external_id, tournament_group_id, home_team_id, away_team_id,\n                kickoff_at, status\n            ) VALUES ($1, $2, $3, $4, $5, $6, 'scheduled')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7474e57b17cd9258f48fa8f1e1e844eb5008b3b4018b93082a2f67a45568034d"
+}

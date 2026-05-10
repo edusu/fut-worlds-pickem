@@ -1,11 +1,18 @@
 use async_nats::Subscriber as NatsSubscriber;
 use error_stack::ResultExt;
+use rust_utils::network::nats::NatsClient;
 use rust_utils::network::validate_and_parse_json;
 use serde::de::DeserializeOwned;
 use tokio_stream::StreamExt;
 use tracing::warn;
 
 use crate::{MessagingError, MessagingResult};
+
+// TODO(jetstream): when push-to-chat is reactivated, migrate this
+// crate to a JetStream durable consumer with manual ACK so message
+// loss on crash becomes impossible. Tracked in ROADMAP "Deferred for
+// later". The plain pub/sub used here is at-most-once; for #5 the
+// scorer's reconciliator covers the gap.
 
 /// Maximum payload size accepted from NATS, in bytes. NATS itself defaults
 /// to a 1 MiB server-side cap; we publish small JSON events (a
@@ -32,9 +39,13 @@ impl<T> Subscriber<T>
 where
     T: DeserializeOwned,
 {
-    /// Subscribe to `topic` on the given client.
-    pub async fn subscribe(client: &async_nats::Client, topic: &str) -> MessagingResult<Self> {
+    /// Subscribe to `topic` on the given client. Goes through
+    /// `NatsClient::inner` because plain pub/sub subscriptions are not
+    /// surfaced by the typed wrapper — that escape hatch is documented
+    /// for exactly this case.
+    pub async fn subscribe(client: &NatsClient, topic: &str) -> MessagingResult<Self> {
         let inner = client
+            .inner()
             .subscribe(topic.to_string())
             .await
             .change_context(MessagingError::Nats)

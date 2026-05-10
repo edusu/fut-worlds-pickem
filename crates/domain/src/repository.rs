@@ -12,9 +12,9 @@ pub use crate::error::RepoResult;
 
 use crate::{
     BestThirdsPrediction, Group, GroupMember, GroupStandingsPrediction, KnockoutPhase,
-    KnockoutPhaseState, KnockoutStage, Match, Prediction, ScoringRule, Team, TelegramChatId,
-    TelegramUserId, Tournament, TournamentGroup, TournamentGroupAssignment, TournamentGroupState,
-    User,
+    KnockoutPhaseState, KnockoutStage, Match, Prediction, ScoringAudit, ScoringRule, Team,
+    TelegramChatId, TelegramUserId, Tournament, TournamentGroup, TournamentGroupAssignment,
+    TournamentGroupState, User,
 };
 
 #[async_trait]
@@ -46,6 +46,12 @@ pub trait GroupRepository: Send + Sync {
     /// Whether the given user is a member of the given pickem. Used by the
     /// API to gate per-pickem requests without loading the whole roster.
     async fn is_member(&self, group_id: Uuid, user_id: TelegramUserId) -> RepoResult<bool>;
+
+    /// Every pickem in the system. Used by the events scorer to fan
+    /// standings / best-thirds scoring across pickems at end-of-phase.
+    /// The returned set is small (one row per Telegram group hosting a
+    /// pickem), so no pagination is offered.
+    async fn list_all(&self) -> RepoResult<Vec<Group>>;
 }
 
 #[async_trait]
@@ -110,6 +116,10 @@ pub trait PredictionRepository: Send + Sync {
 pub trait ScoringRuleRepository: Send + Sync {
     async fn find(&self, id: Uuid) -> RepoResult<Option<ScoringRule>>;
     async fn default_rule(&self) -> RepoResult<ScoringRule>;
+    /// Resolve the scoring rule attached to a pickem (`groups.scoring_rule_id`).
+    /// Used by the scorer to score predictions for a match: each prediction
+    /// belongs to a pickem, and each pickem points at exactly one rule.
+    async fn find_by_pickem_group(&self, pickem_group_id: Uuid) -> RepoResult<Option<ScoringRule>>;
 }
 
 #[async_trait]
@@ -178,6 +188,14 @@ pub trait StandingsPredictionRepository: Send + Sync {
         pickem_group_id: Uuid,
     ) -> RepoResult<Vec<GroupStandingsPrediction>>;
     async fn record_points(&self, prediction_id: Uuid, points: i32) -> RepoResult<()>;
+}
+
+#[async_trait]
+pub trait ScoringAuditRepository: Send + Sync {
+    /// Append one row to `scoring_audit`. Called by the scorer after every
+    /// successful scoring run. The struct is built fresh per call — no
+    /// upsert semantics, the table is append-only.
+    async fn record(&self, audit: &ScoringAudit) -> RepoResult<()>;
 }
 
 #[async_trait]

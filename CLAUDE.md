@@ -148,6 +148,10 @@ Optional:
 - `OTEL_EXPORTER_OTLP_ENDPOINT` — e.g. `http://localhost:4317` for Jaeger
 - `OTEL_SERVICE_NAMESPACE` — resource attribute
 - `RUST_LOG` — tracing filter (default `info`)
+- `SCORER_RECONCILE_INTERVAL_SECS` — cadence of the events scorer's
+  reconcile loop in seconds (default 600). The loop catches matches
+  finished while the scorer was down, group standings pending
+  transition, and best-thirds waiting for the R16 bracket.
 
 Copy `.env.example` to `.env` for local dev. The `justfile` has
 `set dotenv-load := true`, so any recipe sees the same values.

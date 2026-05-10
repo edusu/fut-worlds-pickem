@@ -15,6 +15,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use app_state::AppState;
+use rust_utils::network::nats::{NatsClient, NatsConnectOptions};
 use shared::Config;
 use telegram_client::{FrankensteinClient, TelegramClient, ThrottledTelegramClient};
 use tracing::{debug, info};
@@ -38,7 +39,9 @@ async fn main() -> anyhow::Result<()> {
 
     info!("bot service starting");
 
-    let nats = async_nats::connect(&config.nats_url).await?;
+    let nats = NatsClient::connect(NatsConnectOptions::new(config.nats_url.as_str()))
+        .await
+        .map_err(shared::report_to_anyhow)?;
     let pool = persistence::init_pool(config.database_url.expose()).await?;
 
     // Build one `FrankensteinClient` (cheap-to-clone — shares the same

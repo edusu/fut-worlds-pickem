@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE matches\n           SET status = 'finished', home_score = $2, away_score = $3\n           WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "506c57ae62fe374181d16c7a773341b640d67e8f9f8a8838df12651b8356afc0"
+}

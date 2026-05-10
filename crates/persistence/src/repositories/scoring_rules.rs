@@ -17,19 +17,19 @@ impl PgScoringRuleRepository {
 }
 
 const SELECT_COLUMNS: &str = r#"
-    id, name,
-    gs_miss_points, gs_one_team_points, gs_sign_only_points,
-    gs_sign_plus_one_points, gs_exact_points,
-    ko_adv_points, ko_et_flag_points, ko_pk_flag_points, ko_combo_points,
-    st_pos1_points, st_pos2_points, st_pos3_points, st_pos4_points,
-    st_full_combo_points, st_best_third_points,
-    repick_penalty_pct
+    sr.id, sr.name,
+    sr.gs_miss_points, sr.gs_one_team_points, sr.gs_sign_only_points,
+    sr.gs_sign_plus_one_points, sr.gs_exact_points,
+    sr.ko_adv_points, sr.ko_et_flag_points, sr.ko_pk_flag_points, sr.ko_combo_points,
+    sr.st_pos1_points, sr.st_pos2_points, sr.st_pos3_points, sr.st_pos4_points,
+    sr.st_full_combo_points, sr.st_best_third_points,
+    sr.repick_penalty_pct
 "#;
 
 #[async_trait]
 impl ScoringRuleRepository for PgScoringRuleRepository {
     async fn find(&self, id: Uuid) -> RepoResult<Option<ScoringRule>> {
-        let query = format!("SELECT {SELECT_COLUMNS} FROM scoring_rules WHERE id = $1");
+        let query = format!("SELECT {SELECT_COLUMNS} FROM scoring_rules sr WHERE sr.id = $1");
         let row = sqlx::query(&query)
             .bind(id)
             .fetch_optional(&self.pool)
@@ -44,8 +44,9 @@ impl ScoringRuleRepository for PgScoringRuleRepository {
     /// customizes it. Absence is treated as `RepositoryError::NotFound` —
     /// in practice it would only happen if migrations were not applied.
     async fn default_rule(&self) -> RepoResult<ScoringRule> {
-        let query =
-            format!("SELECT {SELECT_COLUMNS} FROM scoring_rules WHERE name = 'default' LIMIT 1");
+        let query = format!(
+            "SELECT {SELECT_COLUMNS} FROM scoring_rules sr WHERE sr.name = 'default' LIMIT 1"
+        );
         let row = sqlx::query(&query)
             .fetch_optional(&self.pool)
             .await
@@ -53,6 +54,21 @@ impl ScoringRuleRepository for PgScoringRuleRepository {
 
         row.map(row_to_rule)
             .ok_or_else(|| Report::new(RepositoryError::NotFound))
+    }
+
+    async fn find_by_pickem_group(&self, pickem_group_id: Uuid) -> RepoResult<Option<ScoringRule>> {
+        let query = format!(
+            "SELECT {SELECT_COLUMNS} FROM scoring_rules sr \
+             JOIN groups g ON g.scoring_rule_id = sr.id \
+             WHERE g.id = $1"
+        );
+        let row = sqlx::query(&query)
+            .bind(pickem_group_id)
+            .fetch_optional(&self.pool)
+            .await
+            .change_context(RepositoryError::Backend)?;
+
+        Ok(row.map(row_to_rule))
     }
 }
 

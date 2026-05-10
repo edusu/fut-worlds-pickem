@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO knockout_phases (\n            id, tournament_id, stage, position, display_name, deadline_at, state\n        ) VALUES ($1, $2, 'LAST_16', 2, 'Octavos', $3, 'open')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c3d5b381c37f6cf2eb8591bd12042783504d43098a2044a25e2b020858e3a038"
+}

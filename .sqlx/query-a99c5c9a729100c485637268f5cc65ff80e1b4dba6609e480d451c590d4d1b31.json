@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO scoring_audit (\n                id, scored_at, audit_kind, prediction_id,\n                pickem_group_id, user_id, points_awarded,\n                scoring_rule_id, was_changed\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz",
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Int4",
+        "Uuid",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a99c5c9a729100c485637268f5cc65ff80e1b4dba6609e480d451c590d4d1b31"
+}

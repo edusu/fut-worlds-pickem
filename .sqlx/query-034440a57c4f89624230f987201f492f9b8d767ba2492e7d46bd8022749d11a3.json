@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*)::BIGINT AS \"n!\" FROM scoring_audit\n           WHERE pickem_group_id = $1 AND audit_kind = 'match'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "034440a57c4f89624230f987201f492f9b8d767ba2492e7d46bd8022749d11a3"
+}
