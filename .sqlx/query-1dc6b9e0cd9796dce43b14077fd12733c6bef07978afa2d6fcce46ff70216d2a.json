@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE predictions\n            SET was_changed = TRUE\n            WHERE id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1dc6b9e0cd9796dce43b14077fd12733c6bef07978afa2d6fcce46ff70216d2a"
+}

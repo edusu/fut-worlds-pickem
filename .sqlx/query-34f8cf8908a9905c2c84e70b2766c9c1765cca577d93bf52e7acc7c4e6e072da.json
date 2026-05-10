@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, user_id, pickem_group_id, match_id,\n                   reg_home, reg_away,\n                   advancement_winner_team_id, pens_winner_team_id,\n                   was_changed, points_awarded, submitted_at\n            FROM predictions\n            WHERE pickem_group_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "pickem_group_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "match_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "reg_home",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "reg_away",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "advancement_winner_team_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
+        "name": "pens_winner_team_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 8,
+        "name": "was_changed",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "points_awarded",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 10,
+        "name": "submitted_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "34f8cf8908a9905c2c84e70b2766c9c1765cca577d93bf52e7acc7c4e6e072da"
+}

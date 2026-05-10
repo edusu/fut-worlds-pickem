@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE group_standings_predictions\n            SET points_awarded = $2\n            WHERE id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "95cc55204eb8a8edeb8d1f61f232d1d3499477b19ea83c21dc4dda545ecc74c1"
+}

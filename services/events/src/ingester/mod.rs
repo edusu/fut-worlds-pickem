@@ -20,7 +20,6 @@ pub mod poll;
 use std::time::Duration;
 
 use anyhow::Context;
-use domain::repository::TeamRepository;
 use messaging::Publisher;
 use persistence::repositories::{
     PgKnockoutPhaseRepository, PgMatchRepository, PgTeamRepository, PgTournamentGroupRepository,
@@ -53,14 +52,20 @@ pub async fn run(config: Config, pool: PgPool, nats: async_nats::Client) -> anyh
         bootstrap::ensure_tournament_structure(&client, &group_repo, &phase_repo, &tournament)
             .await?;
 
-    // Load teams once after bootstrap. The set is stable for the whole run
-    // (the seed CLI populates `teams` before the service starts and does
-    // not append later); a service restart picks up any future changes.
-    let teams = team_repo
-        .list_all()
-        .await
-        .map_err(shared::report_to_anyhow)
-        .context("loading teams for resolver index")?;
+    // Self-seed teams + group assignments on first boot. Idempotent: when
+    // the catalog is non-empty (after the first run, or after the operator
+    // ran `events-cli seed-tournament`) this returns the existing rows
+    // without contacting the upstream. The returned `Vec<Team>` is what we
+    // would have re-read with `list_all` anyway, so no extra round-trip.
+    let teams = bootstrap::ensure_teams_and_assignments_seeded(
+        &client,
+        &team_repo,
+        &group_repo,
+        &tournament,
+        &structure,
+    )
+    .await
+    .context("ensuring teams catalog and group assignments")?;
     let team_index = poll::build_team_index(&teams);
 
     let ctx = poll::IngestContext {

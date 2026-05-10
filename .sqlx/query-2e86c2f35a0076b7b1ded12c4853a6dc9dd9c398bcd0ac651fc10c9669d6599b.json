@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT team_id\n            FROM best_thirds_predictions\n            WHERE user_id = $1 AND pickem_group_id = $2\n            ORDER BY team_id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "team_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2e86c2f35a0076b7b1ded12c4853a6dc9dd9c398bcd0ac651fc10c9669d6599b"
+}

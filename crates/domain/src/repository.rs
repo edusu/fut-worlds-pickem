@@ -71,15 +71,30 @@ pub trait MatchRepository: Send + Sync {
 #[async_trait]
 pub trait PredictionRepository: Send + Sync {
     /// Insert or update a prediction. On UPDATE (i.e. an edit on an existing
-    /// (user, match) pair) the implementation must set `was_changed = true`
-    /// so the scorer applies the re-pick penalty. The first insert leaves
-    /// `was_changed = false`.
+    /// (user, pickem, match) triple) the implementation must set
+    /// `was_changed = true` so the scorer applies the re-pick penalty. The
+    /// first insert leaves `was_changed = false`.
     async fn upsert(&self, prediction: &Prediction) -> RepoResult<()>;
+    /// Every prediction targeting a specific match, across all pickems.
+    /// Used by the scorer when a match finishes — each prediction is
+    /// scored against its pickem's `scoring_rule_id`.
     async fn list_by_match(&self, match_id: Uuid) -> RepoResult<Vec<Prediction>>;
+    /// Every prediction a user has ever made, across pickems. Reserved for
+    /// admin / cross-pickem analytics; the per-pickem Mini App view uses
+    /// `list_by_user_in_pickem` instead.
     async fn list_by_user(&self, user_id: TelegramUserId) -> RepoResult<Vec<Prediction>>;
-    /// All predictions belonging to users in a given pickem. Used by the
+    /// All predictions inside a single pickem, across users. Used by the
     /// ranking aggregator.
     async fn list_by_pickem(&self, pickem_group_id: Uuid) -> RepoResult<Vec<Prediction>>;
+    /// A user's predictions inside a single pickem. The natural query for
+    /// the Mini App's "show me my picks for this pickem" view: indexable
+    /// against `predictions_user_pickem_match_unique` and avoids loading
+    /// other users' rows.
+    async fn list_by_user_in_pickem(
+        &self,
+        user_id: TelegramUserId,
+        pickem_group_id: Uuid,
+    ) -> RepoResult<Vec<Prediction>>;
     async fn record_points(&self, prediction_id: Uuid, points: i32) -> RepoResult<()>;
     /// Defensive setter — `upsert` already flips this on update, but a
     /// dedicated method keeps the api endpoint that handles edits explicit

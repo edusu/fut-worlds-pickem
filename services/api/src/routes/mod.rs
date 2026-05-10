@@ -13,10 +13,17 @@ mod parents;
 mod predictions;
 mod ranking;
 
+use std::sync::Arc;
+
 use axum::routing::{get, post};
 use axum::Router;
 
-pub fn router() -> Router {
+use crate::middleware::auth::SecretKey;
+
+/// Router factory. Takes the pre-derived HMAC secret key used by the auth
+/// middleware to validate `initData` (see
+/// [`middleware::auth::derive_secret_key`]).
+pub fn router(secret_key: Arc<SecretKey>) -> Router {
     let protected = Router::new()
         .route("/api/tournament-groups/active", get(parents::active_groups))
         .route(
@@ -30,7 +37,8 @@ pub fn router() -> Router {
         )
         .route("/api/predictions", post(predictions::submit))
         .route("/api/groups/{id}/ranking", get(ranking::group_ranking))
-        .layer(axum::middleware::from_fn(
+        .layer(axum::middleware::from_fn_with_state(
+            secret_key,
             crate::middleware::auth::verify_init_data,
         ));
 

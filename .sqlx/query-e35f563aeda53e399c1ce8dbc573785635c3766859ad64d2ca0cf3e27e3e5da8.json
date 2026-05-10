@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, user_id, pickem_group_id, tournament_group_id,\n                   pos1_team_id, pos2_team_id, pos3_team_id, pos4_team_id,\n                   points_awarded, submitted_at\n            FROM group_standings_predictions\n            WHERE pickem_group_id = $1\n            ORDER BY tournament_group_id, user_id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "pickem_group_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "tournament_group_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "pos1_team_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "pos2_team_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 6,
+        "name": "pos3_team_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
+        "name": "pos4_team_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 8,
+        "name": "points_awarded",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
+        "name": "submitted_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "e35f563aeda53e399c1ce8dbc573785635c3766859ad64d2ca0cf3e27e3e5da8"
+}

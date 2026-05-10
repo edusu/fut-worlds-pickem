@@ -16,16 +16,11 @@
 //! environment (loaded from `.env` by the `justfile`), so no secrets ever
 //! travel through CLI flags.
 
-use std::collections::HashMap;
-
 use anyhow::{anyhow, Context};
 use clap::{Parser, Subcommand};
-use domain::{
-    repository::{TeamRepository, TournamentGroupRepository},
-    Team, TournamentGroupAssignment,
-};
 use events::ingester::bootstrap::{
-    ensure_tournament, ensure_tournament_structure, V1_TOURNAMENT_EXTERNAL_ID,
+    ensure_teams_and_assignments_seeded, ensure_tournament, ensure_tournament_structure,
+    V1_TOURNAMENT_EXTERNAL_ID,
 };
 use events::ingester::football_data::{
     flag_emoji_for_team, group_assignments_from_matches, group_label_from_upstream,
@@ -41,8 +36,7 @@ use persistence::{
 use rust_utils::secret::Secret;
 use shared::Config;
 use sports_client::{Client as SportsClient, MatchStatusDto, ScoreDto, ScoreDuration};
-use tracing::{info, warn};
-use uuid::Uuid;
+use tracing::info;
 
 /// Top-level CLI definition. `--competition` lives on each subcommand
 /// (rather than at the root) so future subcommands that do not target a
@@ -222,14 +216,13 @@ async fn list_teams(config: &Config, competition: &str) -> anyhow::Result<()> {
 }
 
 /// Seed `teams`, `tournament_groups`, and `tournament_group_teams` from the
-/// upstream. Order matters:
-///   1. Teams first (other tables FK to it).
-///   2. Tournament groups (no FK on each other).
-///   3. Assignments (FK both teams and tournament_groups).
+/// upstream. The actual writes are delegated to the bootstrap helpers the
+/// ingester also uses, so the CLI and the long-running service share a
+/// single source of truth for "make the schema look like the upstream".
 ///
-/// The function is structured so a single failure mid-way leaves the DB in a
-/// recoverable state: every step is idempotent, so a re-run picks up where
-/// the previous attempt left off.
+/// `--dry-run` keeps the DB-free preview path: it only fetches the same
+/// upstream payloads the helpers would consume and prints what would land,
+/// so an operator can validate a feed before letting it touch Postgres.
 async fn seed_tournament(config: &Config, competition: &str, dry_run: bool) -> anyhow::Result<()> {
     // Fail fast on unsupported competitions for the write path. `--dry-run`
     // is allowed for any competition since it only inspects upstream data.
@@ -242,19 +235,56 @@ async fn seed_tournament(config: &Config, competition: &str, dry_run: bool) -> a
 
     let client = build_client(config)?;
 
-    info!(competition, "fetching teams from upstream");
+    if dry_run {
+        return run_dry_run(&client, competition).await;
+    }
+
+    let pool = init_pool(config.database_url.expose())
+        .await
+        .context("connecting to Postgres")?;
+    let tournament_repo = PgTournamentRepository::new(pool.clone());
+    let group_repo = PgTournamentGroupRepository::new(pool.clone());
+    let phase_repo = PgKnockoutPhaseRepository::new(pool.clone());
+    let team_repo = PgTeamRepository::new(pool.clone());
+
+    let tournament = ensure_tournament(&tournament_repo).await?;
+    let structure =
+        ensure_tournament_structure(&client, &group_repo, &phase_repo, &tournament).await?;
+    info!(
+        groups = structure.groups.len(),
+        knockouts = structure.knockouts.len(),
+        "tournament structure seeded"
+    );
+
+    let teams = ensure_teams_and_assignments_seeded(
+        &client,
+        &team_repo,
+        &group_repo,
+        &tournament,
+        &structure,
+    )
+    .await?;
+
+    println!(
+        "Seed complete: {} teams in catalog, {} groups, {} knockout phases.",
+        teams.len(),
+        structure.groups.len(),
+        structure.knockouts.len(),
+    );
+    Ok(())
+}
+
+/// Fetch the same upstream payloads the seed would consume and print a
+/// human-friendly preview, without ever opening a DB connection.
+async fn run_dry_run(client: &SportsClient, competition: &str) -> anyhow::Result<()> {
+    info!(competition, "fetching teams from upstream (dry run)");
     let teams_payload = client
         .get_competition_teams(competition)
         .await
         .map_err(shared::report_to_anyhow)
         .with_context(|| format!("fetching teams for {competition}"))?;
 
-    // Group assignments come from /matches, not /standings: the standings
-    // endpoint is empty before the competition starts (the case for the WC
-    // 2026 right now), but every group-stage match in /matches already
-    // carries a populated `group` field. We fall back to /standings only
-    // when /matches yields no group-stage entries.
-    info!(competition, "fetching matches from upstream");
+    info!(competition, "fetching matches from upstream (dry run)");
     let matches_payload = client
         .get_competition_matches(competition)
         .await
@@ -273,119 +303,7 @@ async fn seed_tournament(config: &Config, competition: &str, dry_run: bool) -> a
             events::ingester::football_data::group_assignments_from_standings(&standings.standings);
     }
 
-    if dry_run {
-        return print_seed_summary(&teams_payload.teams, &assignments);
-    }
-
-    let pool = init_pool(config.database_url.expose())
-        .await
-        .context("connecting to Postgres")?;
-    let tournament_repo = PgTournamentRepository::new(pool.clone());
-    let group_repo = PgTournamentGroupRepository::new(pool.clone());
-    let phase_repo = PgKnockoutPhaseRepository::new(pool.clone());
-    let team_repo = PgTeamRepository::new(pool.clone());
-
-    // Step 0 — seed the tournament row so subsequent FKs
-    // (`tournament_groups.tournament_id`, `knockout_phases.tournament_id`)
-    // can resolve.
-    let tournament = ensure_tournament(&tournament_repo).await?;
-
-    // Step 0.b — seed the structure (12 groups + 6 knockout phases) using
-    // the bootstrap helper, which derives deadlines from the upstream
-    // fixture list and is idempotent on subsequent runs.
-    let client_for_structure = build_client(config)?;
-    let structure =
-        ensure_tournament_structure(&client_for_structure, &group_repo, &phase_repo, &tournament)
-            .await?;
-    info!(
-        groups = structure.groups.len(),
-        knockouts = structure.knockouts.len(),
-        "tournament structure seeded"
-    );
-
-    // Step 1 — upsert every team so we can resolve country_code → UUID
-    // later. `teams` is a global catalog (no tournament_id); each row is
-    // keyed by `country_code`.
-    let mut teams_written = 0;
-    let mut country_to_id: HashMap<String, Uuid> = HashMap::new();
-    for dto in &teams_payload.teams {
-        let Some(code) = team_country_code(dto) else {
-            warn!(name = %dto.name, "team has no country code, skipping");
-            continue;
-        };
-        let existing = team_repo
-            .find_by_country_code(&code)
-            .await
-            .map_err(shared::report_to_anyhow)?;
-        let id = existing.as_ref().map(|t| t.id).unwrap_or_else(Uuid::new_v4);
-        let team = Team {
-            id,
-            name: dto.name.clone(),
-            flag_emoji: flag_emoji_for_team(dto),
-            country_code: code.clone(),
-        };
-        team_repo
-            .upsert(&team)
-            .await
-            .map_err(shared::report_to_anyhow)
-            .with_context(|| format!("upserting team {}", code))?;
-        country_to_id.insert(code, id);
-        teams_written += 1;
-    }
-    info!(count = teams_written, "teams upserted");
-
-    // Step 2 — wire teams to their groups. The bootstrap-built
-    // `group_index` is the source of truth for `tournament_group_id`. We
-    // tolerate missing teams (a standings row may reference a placeholder
-    // not in /teams) by logging instead of aborting.
-    let mut assigned = 0;
-    let mut skipped_missing_team = 0;
-    let mut skipped_missing_group = 0;
-    for (group_name, country_code) in &assignments {
-        let Some(team_id) = country_to_id.get(country_code) else {
-            warn!(
-                country_code,
-                group_name, "team not in /teams payload, skipping"
-            );
-            skipped_missing_team += 1;
-            continue;
-        };
-        let Some(group_id) = structure.group_index.get(group_name) else {
-            warn!(
-                group_name,
-                "group not in bootstrap-seeded structure, skipping"
-            );
-            skipped_missing_group += 1;
-            continue;
-        };
-        group_repo
-            .assign_team(&TournamentGroupAssignment {
-                tournament_id: tournament.id,
-                tournament_group_id: *group_id,
-                team_id: *team_id,
-            })
-            .await
-            .map_err(shared::report_to_anyhow)
-            .with_context(|| format!("assigning {country_code} to {group_name}"))?;
-        assigned += 1;
-    }
-    info!(
-        assignments = assigned,
-        missing_team = skipped_missing_team,
-        missing_group = skipped_missing_group,
-        "team-to-group assignments complete"
-    );
-
-    println!(
-        "Seed complete: {} teams, {} groups, {} knockout phases, {} assignments ({} skipped: missing team, {} skipped: missing group).",
-        teams_written,
-        structure.groups.len(),
-        structure.knockouts.len(),
-        assigned,
-        skipped_missing_team,
-        skipped_missing_group
-    );
-    Ok(())
+    print_seed_summary(&teams_payload.teams, &assignments)
 }
 
 /// Pretty-print what `seed-tournament --dry-run` would do without touching

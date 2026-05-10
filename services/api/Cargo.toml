@@ -17,6 +17,7 @@ domain = { path = "../../crates/domain" }
 persistence = { path = "../../crates/persistence" }
 messaging = { path = "../../crates/messaging" }
 shared = { path = "../../crates/shared" }
+rust-utils = { workspace = true }
 
 tokio = { workspace = true }
 sqlx = { workspace = true }
@@ -37,3 +38,4 @@ error-stack = { workspace = true }
 hmac = { workspace = true }
 sha2 = { workspace = true }
 urlencoding = { workspace = true }
+hex = { workspace = true }
