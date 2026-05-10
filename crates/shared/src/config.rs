@@ -30,6 +30,10 @@ pub struct Config {
     /// third party drain the quota or get the account suspended.
     pub football_api_key: Secret<String>,
     pub api_bind_addr: String,
+    /// Origin allowed by CORS for the Mini App. Defaults to the Vite dev
+    /// server (`http://localhost:5173`) when the env var is unset, so a
+    /// fresh checkout works without extra configuration.
+    pub miniapp_origin: String,
     pub otel_endpoint: Option<String>,
     pub otel_service_namespace: Option<String>,
 }
@@ -50,6 +54,7 @@ impl Config {
             telegram_webhook_url: optional("TELEGRAM_WEBHOOK_URL"),
             football_api_key: Secret::new(required("FOOTBALL_API_KEY")?),
             api_bind_addr: required("API_BIND_ADDR")?,
+            miniapp_origin: optional_with_default("MINIAPP_ORIGIN", "http://localhost:5173"),
             otel_endpoint: optional("OTEL_EXPORTER_OTLP_ENDPOINT"),
             otel_service_namespace: optional("OTEL_SERVICE_NAMESPACE"),
         })
@@ -67,4 +72,11 @@ fn required(key: &'static str) -> SharedResult<String> {
 /// Read an optional env var, returning `None` if unset or empty.
 fn optional(key: &'static str) -> Option<String> {
     std::env::var(key).ok().filter(|v| !v.is_empty())
+}
+
+/// Read an optional env var, falling back to a static default. Wraps the
+/// recurring `optional(...).unwrap_or_else(...)` so the default lives next
+/// to the key in the call site.
+fn optional_with_default(key: &'static str, default: &str) -> String {
+    optional(key).unwrap_or_else(|| default.to_string())
 }
