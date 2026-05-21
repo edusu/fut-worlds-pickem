@@ -144,6 +144,12 @@ truth for what a service needs at startup. Required:
 
 Optional:
 
+- `MINIAPP_URL` — public HTTPS URL of the Mini App that the bot's menu
+  button and `/new_pickem` / `/play` inline buttons point to. Defaults
+  to `http://localhost:5173` so a fresh checkout works without further
+  configuration; pin a distinct HTTPS value in production.
+- `MINIAPP_ORIGIN` — origin allowed by the API's CORS layer for the
+  Mini App. Defaults to `http://localhost:5173`.
 - `TELEGRAM_WEBHOOK_URL` — leave empty for long polling
 - `OTEL_EXPORTER_OTLP_ENDPOINT` — e.g. `http://localhost:4317` for Jaeger
 - `OTEL_SERVICE_NAMESPACE` — resource attribute

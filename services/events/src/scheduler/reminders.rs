@@ -104,10 +104,9 @@ fn group_by_user(
     grouped
 }
 
-/// Render the DM body. Plain text only — `send_text_with_buttons` is
-/// still a stub in `FrankensteinClient`, so the inline `web_app` button
-/// the ROADMAP envisions arrives with feature #7 (Mini App entry
-/// points). For now the user re-enters via the bot's `/play` command.
+/// Render the DM body. Plain text only — the reminder points users at
+/// `/play`, which itself renders an inline `web_app` button; keeping
+/// the button out of this DM avoids duplicating the entry-point logic.
 fn render_reminder(pending_count: usize) -> String {
     format!(
         "Reminder: you have {pending_count} pending prediction{plural} \

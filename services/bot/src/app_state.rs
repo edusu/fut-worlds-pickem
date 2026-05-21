@@ -19,12 +19,13 @@ pub struct AppState {
     pub groups: Arc<dyn GroupRepository>,
     pub scoring_rules: Arc<dyn ScoringRuleRepository>,
     pub ranking: Arc<dyn RankingRepository>,
-    /// Outbound Telegram channel. Today the update loop calls it (to
-    /// translate `HandlerOutcome::Reply` into a Telegram message); features
-    /// #4/#7 will let handlers send messages with inline buttons / pin chat
-    /// messages directly via this port without going back through the
-    /// dispatcher.
+    /// Outbound Telegram channel. Handlers send messages, inline keyboards
+    /// and chat-pin requests through this port; the update loop also uses
+    /// it to translate `HandlerOutcome::Reply` into a Telegram send.
     pub telegram: Arc<dyn TelegramClient>,
+    /// Public Mini App URL rendered into the `web_app` inline button
+    /// produced by `/new_pickem` and `/play`.
+    pub miniapp_url: Arc<String>,
 }
 
 impl AppState {
@@ -32,13 +33,14 @@ impl AppState {
     /// Telegram client. The pool is cloned into each repository — `PgPool`
     /// is internally `Arc`-shared, so this does not multiply real
     /// connections.
-    pub fn new(pool: PgPool, telegram: Arc<dyn TelegramClient>) -> Self {
+    pub fn new(pool: PgPool, telegram: Arc<dyn TelegramClient>, miniapp_url: Arc<String>) -> Self {
         Self {
             users: Arc::new(PgUserRepository::new(pool.clone())),
             groups: Arc::new(PgGroupRepository::new(pool.clone())),
             scoring_rules: Arc::new(PgScoringRuleRepository::new(pool.clone())),
             ranking: Arc::new(PgRankingRepository::new(pool)),
             telegram,
+            miniapp_url,
         }
     }
 }

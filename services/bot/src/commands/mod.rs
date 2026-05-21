@@ -14,6 +14,21 @@ pub mod start;
 pub use parser::Command;
 
 use domain::{TelegramChatId, User};
+use telegram_client::Button;
+
+/// Label rendered on every inline button that launches the Mini App
+/// (`/new_pickem` confirmation, `/play`). Kept here so the CTA stays
+/// identical across handlers.
+pub const OPEN_MINI_APP_LABEL: &str = "Open Mini App";
+
+/// Single-button row that opens the Mini App at `url`. Both `/new_pickem`
+/// and `/play` render exactly this keyboard.
+pub fn mini_app_button_row(url: &str) -> Vec<Vec<Button>> {
+    vec![vec![Button::WebApp {
+        text: OPEN_MINI_APP_LABEL.to_string(),
+        url: url.to_string(),
+    }]]
+}
 
 /// Per-message context built from a parsed Telegram update. Carries the
 /// invoking user (already shaped as a domain `User`) and the chat where the
@@ -37,9 +52,9 @@ pub struct CommandContext {
 pub enum HandlerOutcome {
     /// Send a plain-text reply back to the same chat.
     Reply(String),
-    /// Acknowledge silently — the command was understood but produces no
-    /// chat output (e.g. logging-only paths).
-    #[allow(dead_code)] // first user lands with feature #1 wiring
+    /// Acknowledge silently — the handler already produced its own chat
+    /// output through `state.telegram` (e.g. `/new_pickem` sends an
+    /// inline-keyboard message and pins it directly).
     Silent,
 }
 

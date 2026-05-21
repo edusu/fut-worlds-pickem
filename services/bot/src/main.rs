@@ -15,10 +15,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use app_state::AppState;
+use frankenstein::AsyncTelegramApi;
 use rust_utils::network::nats::{NatsClient, NatsConnectOptions};
 use shared::Config;
 use telegram_client::{FrankensteinClient, TelegramClient, ThrottledTelegramClient};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Cadence for sweeping idle per-chat buckets out of the rate limiter.
 ///
@@ -27,6 +28,23 @@ use tracing::{debug, info};
 /// eligible for eviction. A 5-minute sweep keeps the limiter's HashMap
 /// trimmed without doing meaningful work in the steady state.
 const RATE_LIMIT_CLEANUP_INTERVAL: Duration = Duration::from_secs(300);
+
+/// Canonical slash-command menu pushed to Telegram at startup. Must
+/// stay in sync with `services/bot/src/commands/` and the table in
+/// `CLAUDE.md`; `set_my_commands` is idempotent so re-running this list
+/// every boot is safe.
+const BOT_COMMAND_MENU: &[(&str, &str)] = &[
+    ("start", "Show welcome message and quick help"),
+    ("new_pickem", "Create a pickem in this group (admin only)"),
+    ("join", "Join the pickem in this group"),
+    ("play", "Open the Mini App to enter your predictions"),
+    ("ranking", "Show the current standings in this group"),
+    ("help", "Show available commands and how to play"),
+];
+
+/// Label for the DM menu button that launches the Mini App. Shown left
+/// of the input field in every private chat with the bot.
+const MENU_BUTTON_LABEL: &str = "Predict";
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -63,7 +81,34 @@ async fn main() -> anyhow::Result<()> {
         ThrottledTelegramClient::new(frankenstein.clone()).map_err(shared::report_to_anyhow)?,
     );
     let frankenstein = Arc::new(frankenstein);
-    let state = AppState::new(pool, throttled.clone() as Arc<dyn TelegramClient>);
+
+    // Resolve our own username once. The update loop uses it to gate
+    // `/cmd@OtherBot` traffic.
+    let bot_username = frankenstein
+        .bot()
+        .get_me()
+        .await?
+        .result
+        .username
+        .ok_or_else(|| anyhow::anyhow!("getMe returned a bot without a username"))?;
+    let bot_username = Arc::new(bot_username);
+
+    // Sync the slash menu and DM menu button. Failures are non-fatal —
+    // commands typed by hand still work, and `/new_pickem`'s inline
+    // button is an independent entry point into the Mini App.
+    let telegram: Arc<dyn TelegramClient> = throttled.clone() as Arc<dyn TelegramClient>;
+    if let Err(e) = telegram.set_my_commands(BOT_COMMAND_MENU).await {
+        warn!(error = ?e, "set_my_commands failed; slash menu may be out of date");
+    }
+    if let Err(e) = telegram
+        .set_chat_menu_button(MENU_BUTTON_LABEL, &config.miniapp_url)
+        .await
+    {
+        warn!(error = ?e, "set_chat_menu_button failed; DM menu button may be missing");
+    }
+
+    let miniapp_url = Arc::new(config.miniapp_url.clone());
+    let state = AppState::new(pool, telegram, miniapp_url);
 
     // Periodic sweep of idle per-chat buckets. The buckets themselves
     // are the source of truth for "last activity" (via their GCRA
@@ -85,7 +130,7 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    let updates = update_loop::run(config.clone(), state.clone(), frankenstein);
+    let updates = update_loop::run(config.clone(), state.clone(), frankenstein, bot_username);
     let notifier = event_consumers::notify::run(config.clone(), nats.clone());
 
     tokio::try_join!(updates, notifier)?;

@@ -8,14 +8,22 @@
 use chrono::Utc;
 use domain::{Group, GroupMember};
 use shared::report_to_anyhow;
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::app_state::AppState;
-use crate::commands::{CommandContext, HandlerOutcome};
+use crate::commands::{mini_app_button_row, CommandContext, HandlerOutcome};
 
 /// Handle `/new_pickem`. Creates a new pickem group bound to the current
 /// Telegram chat, with the invoking user as the owner, and registers that
 /// user as the first member.
+///
+/// On the create path the handler also sends a confirmation message with
+/// an inline `web_app` button into the Mini App and pins that message in
+/// the chat, so anyone joining later still sees the entry point. The pin
+/// is best-effort: when the bot is not a chat admin Telegram returns an
+/// error and we log + continue (the inline button on the unpinned
+/// message still works).
 pub async fn handle(state: &AppState, ctx: &CommandContext) -> anyhow::Result<HandlerOutcome> {
     // Persist the user first — `group_members.user_id` FKs to `users`, so
     // creating a pickem before the row exists would 23503-fail.
@@ -25,9 +33,10 @@ pub async fn handle(state: &AppState, ctx: &CommandContext) -> anyhow::Result<Ha
         .await
         .map_err(report_to_anyhow)?;
 
-    // Idempotency check before insert. A concurrent second `/new_pickem`
-    // would still be caught by the UNIQUE constraint on telegram_chat_id,
-    // but in the common single-runner case this gives a clean message.
+    // Idempotency check before insert. The UNIQUE constraint on
+    // `telegram_chat_id` is the backstop against a concurrent second
+    // `/new_pickem`; the early return here also skips the send+pin path
+    // below so re-runs do not pin a duplicate message.
     if let Some(existing) = state
         .groups
         .find_by_chat(ctx.chat_id)
@@ -73,8 +82,28 @@ pub async fn handle(state: &AppState, ctx: &CommandContext) -> anyhow::Result<Ha
         .await
         .map_err(report_to_anyhow)?;
 
-    Ok(HandlerOutcome::Reply(format!(
-        "Pickem '{}' created. Tell the others to run /join.",
+    let chat_id = ctx.chat_id.0;
+    let body = format!(
+        "Pickem '{}' created. Tap the button below to enter your predictions, \
+         or tell the others to run /join first.",
         group.name
-    )))
+    );
+    let buttons = mini_app_button_row(&state.miniapp_url);
+
+    let message_id = state
+        .telegram
+        .send_text_with_buttons(chat_id, &body, &buttons)
+        .await
+        .map_err(report_to_anyhow)?;
+
+    if let Err(e) = state.telegram.pin_chat_message(chat_id, message_id).await {
+        warn!(
+            chat_id,
+            message_id,
+            error = ?e,
+            "could not pin pickem-confirmation message; bot is probably not admin"
+        );
+    }
+
+    Ok(HandlerOutcome::Silent)
 }

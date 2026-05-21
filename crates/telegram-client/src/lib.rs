@@ -12,7 +12,13 @@ pub use throttle::ThrottledTelegramClient;
 use async_trait::async_trait;
 use error_stack::Report;
 use frankenstein::client_reqwest::Bot;
-use frankenstein::methods::SendMessageParams;
+use frankenstein::methods::{
+    PinChatMessageParams, SendMessageParams, SetChatMenuButtonParams, SetMyCommandsParams,
+};
+use frankenstein::types::{
+    BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, MenuButton, MenuButtonWebApp,
+    ReplyMarkup, WebAppInfo,
+};
 use frankenstein::AsyncTelegramApi;
 
 /// Telegram HTTP code returned when the bot cannot DM the user — either
@@ -20,12 +26,15 @@ use frankenstein::AsyncTelegramApi;
 /// deactivated. The scheduler treats this as "skip and continue".
 const TELEGRAM_FORBIDDEN_CODE: u64 = 403;
 
-/// One inline-keyboard button. Either a callback (data routed back to the
-/// bot) or a URL (opens a Mini App / external link).
+/// One inline-keyboard button. `Url` opens an external link in the in-app
+/// browser; `WebApp` launches a Telegram Mini App (with signed `initData`)
+/// — distinct because Telegram routes them to different fields on
+/// `InlineKeyboardButton`.
 #[derive(Debug, Clone)]
 pub enum Button {
     Callback { text: String, data: String },
     Url { text: String, url: String },
+    WebApp { text: String, url: String },
 }
 
 #[async_trait]
@@ -34,12 +43,14 @@ pub trait TelegramClient: Send + Sync {
     async fn send_text(&self, chat_id: i64, text: &str) -> TelegramResult<()>;
 
     /// Send a message with an inline keyboard. `buttons` is laid out as rows.
+    /// Returns the `message_id` of the delivered message so callers can chain
+    /// follow-up actions (e.g. pinning the same message).
     async fn send_text_with_buttons(
         &self,
         chat_id: i64,
         text: &str,
         buttons: &[Vec<Button>],
-    ) -> TelegramResult<()>;
+    ) -> TelegramResult<i32>;
 
     /// Acknowledge a callback query (clears the loading spinner on the
     /// client). `text` is an optional toast.
@@ -51,6 +62,20 @@ pub trait TelegramClient: Send + Sync {
 
     /// Register the bot's webhook URL (no-op if using long polling).
     async fn set_webhook(&self, url: &str) -> TelegramResult<()>;
+
+    /// Replace the bot's slash-command menu (rendered next to `/` in every
+    /// chat). `commands` is `(command, description)` without the leading
+    /// `/`. Idempotent — safe to re-run at every startup.
+    async fn set_my_commands(&self, commands: &[(&str, &str)]) -> TelegramResult<()>;
+
+    /// Replace the bot's global DM menu button with a Mini App launcher
+    /// pointing at `url`. Bot-global: no `chat_id` means every DM.
+    async fn set_chat_menu_button(&self, text: &str, url: &str) -> TelegramResult<()>;
+
+    /// Pin a message silently (`disable_notification = true`) so we do
+    /// not ping every group member. Caller must treat failures as
+    /// best-effort — the bot may lack `can_pin_messages`.
+    async fn pin_chat_message(&self, chat_id: i64, message_id: i32) -> TelegramResult<()>;
 }
 
 /// `frankenstein`-backed implementation. Wraps a `frankenstein::Bot` (the
@@ -108,12 +133,30 @@ impl TelegramClient for FrankensteinClient {
 
     async fn send_text_with_buttons(
         &self,
-        _chat_id: i64,
-        _text: &str,
-        _buttons: &[Vec<Button>],
-    ) -> TelegramResult<()> {
-        Err(error_stack::Report::new(TelegramError::Api)
-            .attach("FrankensteinClient::send_text_with_buttons not implemented"))
+        chat_id: i64,
+        text: &str,
+        buttons: &[Vec<Button>],
+    ) -> TelegramResult<i32> {
+        let keyboard: Vec<Vec<InlineKeyboardButton>> = buttons
+            .iter()
+            .map(|row| row.iter().map(to_inline_button).collect())
+            .collect();
+        let markup = InlineKeyboardMarkup::builder()
+            .inline_keyboard(keyboard)
+            .build();
+
+        let params = SendMessageParams::builder()
+            .chat_id(chat_id)
+            .text(text.to_string())
+            .reply_markup(ReplyMarkup::InlineKeyboardMarkup(markup))
+            .build();
+
+        let response = self
+            .bot
+            .send_message(&params)
+            .await
+            .map_err(map_frankenstein_error)?;
+        Ok(response.result.message_id)
     }
 
     async fn answer_callback_query(
@@ -128,6 +171,72 @@ impl TelegramClient for FrankensteinClient {
     async fn set_webhook(&self, _url: &str) -> TelegramResult<()> {
         Err(error_stack::Report::new(TelegramError::Api)
             .attach("FrankensteinClient::set_webhook not implemented"))
+    }
+
+    async fn set_my_commands(&self, commands: &[(&str, &str)]) -> TelegramResult<()> {
+        let payload: Vec<BotCommand> = commands
+            .iter()
+            .map(|(command, description)| {
+                BotCommand::builder()
+                    .command(command.to_string())
+                    .description(description.to_string())
+                    .build()
+            })
+            .collect();
+        let params = SetMyCommandsParams::builder().commands(payload).build();
+        self.bot
+            .set_my_commands(&params)
+            .await
+            .map_err(map_frankenstein_error)?;
+        Ok(())
+    }
+
+    async fn set_chat_menu_button(&self, text: &str, url: &str) -> TelegramResult<()> {
+        let web_app = WebAppInfo::builder().url(url.to_string()).build();
+        let menu = MenuButton::WebApp(
+            MenuButtonWebApp::builder()
+                .text(text.to_string())
+                .web_app(web_app)
+                .build(),
+        );
+        // Omit `chat_id` to scope the change bot-globally (DMs only — the
+        // menu button is a private-chat concept).
+        let params = SetChatMenuButtonParams::builder().menu_button(menu).build();
+        self.bot
+            .set_chat_menu_button(&params)
+            .await
+            .map_err(map_frankenstein_error)?;
+        Ok(())
+    }
+
+    async fn pin_chat_message(&self, chat_id: i64, message_id: i32) -> TelegramResult<()> {
+        let params = PinChatMessageParams::builder()
+            .chat_id(chat_id)
+            .message_id(message_id)
+            .disable_notification(true)
+            .build();
+        self.bot
+            .pin_chat_message(&params)
+            .await
+            .map_err(map_frankenstein_error)?;
+        Ok(())
+    }
+}
+
+fn to_inline_button(button: &Button) -> InlineKeyboardButton {
+    match button {
+        Button::Callback { text, data } => InlineKeyboardButton::builder()
+            .text(text.clone())
+            .callback_data(data.clone())
+            .build(),
+        Button::Url { text, url } => InlineKeyboardButton::builder()
+            .text(text.clone())
+            .url(url.clone())
+            .build(),
+        Button::WebApp { text, url } => InlineKeyboardButton::builder()
+            .text(text.clone())
+            .web_app(WebAppInfo::builder().url(url.clone()).build())
+            .build(),
     }
 }
 

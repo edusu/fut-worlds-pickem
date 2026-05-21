@@ -170,7 +170,7 @@ impl<C: TelegramClient> TelegramClient for ThrottledTelegramClient<C> {
         chat_id: i64,
         text: &str,
         buttons: &[Vec<Button>],
-    ) -> TelegramResult<()> {
+    ) -> TelegramResult<i32> {
         self.per_chat(chat_id)
             .run(&chat_id, || async {
                 self.global
@@ -195,6 +195,30 @@ impl<C: TelegramClient> TelegramClient for ThrottledTelegramClient<C> {
     /// Pass-through: `setWebhook` is a one-shot configuration call.
     async fn set_webhook(&self, url: &str) -> TelegramResult<()> {
         self.inner.set_webhook(url).await
+    }
+
+    /// Pass-through: `setMyCommands` runs once at startup and does not
+    /// contribute to the broadcasting limits.
+    async fn set_my_commands(&self, commands: &[(&str, &str)]) -> TelegramResult<()> {
+        self.inner.set_my_commands(commands).await
+    }
+
+    /// Pass-through: `setChatMenuButton` is a one-shot startup call.
+    async fn set_chat_menu_button(&self, text: &str, url: &str) -> TelegramResult<()> {
+        self.inner.set_chat_menu_button(text, url).await
+    }
+
+    /// Pace `pinChatMessage` against the per-chat bucket — pinning is a
+    /// regular Bot API call that counts toward Telegram's per-chat budget
+    /// even though we expect at most one pin per pickem creation.
+    async fn pin_chat_message(&self, chat_id: i64, message_id: i32) -> TelegramResult<()> {
+        self.per_chat(chat_id)
+            .run(&chat_id, || async {
+                self.global
+                    .run(|| self.inner.pin_chat_message(chat_id, message_id))
+                    .await
+            })
+            .await
     }
 }
 
@@ -232,8 +256,8 @@ mod tests {
             _chat_id: i64,
             _text: &str,
             _buttons: &[Vec<Button>],
-        ) -> TelegramResult<()> {
-            Ok(())
+        ) -> TelegramResult<i32> {
+            Ok(0)
         }
 
         async fn answer_callback_query(
@@ -245,6 +269,18 @@ mod tests {
         }
 
         async fn set_webhook(&self, _url: &str) -> TelegramResult<()> {
+            Ok(())
+        }
+
+        async fn set_my_commands(&self, _commands: &[(&str, &str)]) -> TelegramResult<()> {
+            Ok(())
+        }
+
+        async fn set_chat_menu_button(&self, _text: &str, _url: &str) -> TelegramResult<()> {
+            Ok(())
+        }
+
+        async fn pin_chat_message(&self, _chat_id: i64, _message_id: i32) -> TelegramResult<()> {
             Ok(())
         }
     }

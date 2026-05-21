@@ -72,22 +72,15 @@ const UNKNOWN_COMMAND_REPLY: &str = "Try /help to see available commands.";
 /// service. Transient `get_updates` errors are retried with jittered
 /// exponential backoff up to `MAX_RETRIES` consecutive attempts before the
 /// loop gives up.
+///
+/// `bot_username` is resolved by `main.rs` via `get_me` so `Command::parse`
+/// here can accept `/cmd@MyBot` and reject `/cmd@SomeoneElse`.
 pub async fn run(
     _config: Config,
     state: AppState,
     telegram: Arc<FrankensteinClient>,
+    bot_username: Arc<String>,
 ) -> anyhow::Result<()> {
-    // Resolve our own username once. `Command::parse` uses it to accept
-    // `/cmd@MyBot` while rejecting `/cmd@SomeoneElse`.
-    let bot_username = telegram
-        .bot()
-        .get_me()
-        .await?
-        .result
-        .username
-        .ok_or_else(|| anyhow::anyhow!("getMe returned a bot without a username"))?;
-    let bot_username = Arc::new(bot_username);
-
     // Build the bounded worker pool. The handler closure is called on every
     // submitted update; it clones the per-call state so the closure itself
     // remains `Fn` (each invocation gets a fresh, independent copy).

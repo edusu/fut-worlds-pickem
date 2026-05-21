@@ -46,6 +46,11 @@ pub struct Config {
     /// server (`http://localhost:5173`) when the env var is unset, so a
     /// fresh checkout works without extra configuration.
     pub miniapp_origin: String,
+    /// Public URL of the Mini App that Telegram launches when the user
+    /// taps the bot's menu button or an inline `web_app` button.
+    /// Telegram requires HTTPS in production. Defaults to the Vite dev
+    /// server so a fresh checkout works without extra configuration.
+    pub miniapp_url: String,
     pub otel_endpoint: Option<String>,
     pub otel_service_namespace: Option<String>,
     /// Cadence for the events scorer's reconcile loop, in seconds.
@@ -82,6 +87,7 @@ impl Config {
             football_api_key: Secret::new(required("FOOTBALL_API_KEY")?),
             api_bind_addr: required("API_BIND_ADDR")?,
             miniapp_origin: optional_with_default("MINIAPP_ORIGIN", "http://localhost:5173"),
+            miniapp_url: optional_with_default("MINIAPP_URL", "http://localhost:5173"),
             otel_endpoint: optional("OTEL_EXPORTER_OTLP_ENDPOINT"),
             otel_service_namespace: optional("OTEL_SERVICE_NAMESPACE"),
             scorer_reconcile_interval_secs: optional_u64("SCORER_RECONCILE_INTERVAL_SECS")?,
