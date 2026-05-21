@@ -11,9 +11,9 @@ const DEFAULT_SCORER_RECONCILE_INTERVAL_SECS: u64 = 600;
 /// Default cadence for the events reminder scheduler tick.
 const DEFAULT_REMINDER_TICK_INTERVAL_SECS: u64 = 600;
 /// Default lower bound of the reminder window (hours before deadline).
-const DEFAULT_REMINDER_WINDOW_HOURS_MIN: i64 = 6;
+const DEFAULT_REMINDER_WINDOW_HOURS_MIN: u64 = 6;
 /// Default upper bound of the reminder window (hours before deadline).
-const DEFAULT_REMINDER_WINDOW_HOURS_MAX: i64 = 24;
+const DEFAULT_REMINDER_WINDOW_HOURS_MAX: u64 = 24;
 
 /// Configuration shared across services. Each service reads it from env vars
 /// at startup; values come from `.env` in development and from the
@@ -59,10 +59,10 @@ pub struct Config {
     /// Lower bound (hours from `now`) of the deadline window that fires
     /// reminder DMs. `None` falls back to
     /// [`DEFAULT_REMINDER_WINDOW_HOURS_MIN`].
-    pub reminder_window_hours_min: Option<i64>,
+    pub reminder_window_hours_min: Option<u64>,
     /// Upper bound (hours from `now`) of the deadline window. `None`
     /// falls back to [`DEFAULT_REMINDER_WINDOW_HOURS_MAX`].
-    pub reminder_window_hours_max: Option<i64>,
+    pub reminder_window_hours_max: Option<u64>,
 }
 
 impl Config {
@@ -86,8 +86,8 @@ impl Config {
             otel_service_namespace: optional("OTEL_SERVICE_NAMESPACE"),
             scorer_reconcile_interval_secs: optional_u64("SCORER_RECONCILE_INTERVAL_SECS")?,
             reminder_tick_interval_secs: optional_u64("REMINDER_TICK_INTERVAL_SECS")?,
-            reminder_window_hours_min: optional_i64("REMINDER_WINDOW_HOURS_MIN")?,
-            reminder_window_hours_max: optional_i64("REMINDER_WINDOW_HOURS_MAX")?,
+            reminder_window_hours_min: optional_u64("REMINDER_WINDOW_HOURS_MIN")?,
+            reminder_window_hours_max: optional_u64("REMINDER_WINDOW_HOURS_MAX")?,
         })
     }
 
@@ -111,7 +111,7 @@ impl Config {
 
     /// Resolve the reminder window bounds as a `(min, max)` pair of
     /// hour offsets from `now`. Falls back to the 6h/24h defaults.
-    pub fn reminder_window_hours(&self) -> (i64, i64) {
+    pub fn reminder_window_hours(&self) -> (u64, u64) {
         (
             self.reminder_window_hours_min
                 .unwrap_or(DEFAULT_REMINDER_WINDOW_HOURS_MIN),
@@ -152,19 +152,5 @@ fn optional_u64(key: &'static str) -> SharedResult<Option<u64>> {
     raw.parse::<u64>().map(Some).map_err(|_| {
         error_stack::Report::new(SharedError::MissingConfig)
             .attach(format!("env var {key} not parseable as u64: {raw}"))
-    })
-}
-
-/// `i64` sibling of [`optional_u64`]. Used for the reminder-window
-/// bounds, expressed as hour offsets — negative values are nonsensical
-/// but rejected at the integer-parse level rather than with an extra
-/// range check, since the scheduler clamps to a sane window anyway.
-fn optional_i64(key: &'static str) -> SharedResult<Option<i64>> {
-    let Some(raw) = optional(key) else {
-        return Ok(None);
-    };
-    raw.parse::<i64>().map(Some).map_err(|_| {
-        error_stack::Report::new(SharedError::MissingConfig)
-            .attach(format!("env var {key} not parseable as i64: {raw}"))
     })
 }

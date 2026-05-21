@@ -36,15 +36,18 @@ pub async fn run(config: Config, pool: PgPool, _nats: NatsClient) -> anyhow::Res
         window_max_hours: window_max,
     };
 
-    let mut ticker = interval(config.reminder_tick_interval());
-    // `Burst` (the default) would fire the first tick immediately. We
-    // want a small delay on startup so the bot's update loop has time
-    // to come online before the scheduler tries to send the first DM.
+    let tick_interval = config.reminder_tick_interval();
+    let mut ticker = interval(tick_interval);
+    // If a tick body runs longer than the interval, fall behind rather
+    // than burst-catching up so a slow tick can't trigger a DM storm.
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    ticker.tick().await; // immediate first tick — fine, the loop short-circuits when empty
+    // `tokio::time::interval` resolves the first tick immediately;
+    // consume it so startup waits one full interval before the first
+    // reminder pass (gives the bot's update loop time to come online).
+    ticker.tick().await;
 
     info!(
-        tick_secs = config.reminder_tick_interval().as_secs(),
+        tick_secs = tick_interval.as_secs(),
         window_min, window_max, "reminder scheduler running"
     );
 

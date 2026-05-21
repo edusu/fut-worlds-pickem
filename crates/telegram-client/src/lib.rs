@@ -99,9 +99,10 @@ impl TelegramClient for FrankensteinClient {
             .text(text.to_string())
             .build();
 
-        if let Err(e) = self.bot.send_message(&params).await {
-            return Err(map_frankenstein_error(e));
-        }
+        self.bot
+            .send_message(&params)
+            .await
+            .map_err(map_frankenstein_error)?;
         Ok(())
     }
 

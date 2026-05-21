@@ -25,8 +25,8 @@ use tracing::{info, warn};
 pub struct ReminderDeps {
     pub reminders: Arc<dyn PredictionReminderRepository>,
     pub telegram: Arc<dyn TelegramClient>,
-    pub window_min_hours: i64,
-    pub window_max_hours: i64,
+    pub window_min_hours: u64,
+    pub window_max_hours: u64,
 }
 
 /// Run a single tick. Public so `scheduler::run` can call it from its
@@ -39,8 +39,8 @@ pub async fn run_once(deps: &ReminderDeps) -> anyhow::Result<usize> {
         .reminders
         .list_pending(
             now,
-            Duration::hours(deps.window_min_hours),
-            Duration::hours(deps.window_max_hours),
+            Duration::hours(deps.window_min_hours as i64),
+            Duration::hours(deps.window_max_hours as i64),
         )
         .await
         .map_err(shared::report_to_anyhow)?;
