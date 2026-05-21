@@ -12,8 +12,8 @@ pub use crate::error::RepoResult;
 
 use crate::{
     BestThirdsPrediction, Group, GroupMember, GroupStandingsPrediction, KnockoutPhase,
-    KnockoutPhaseState, KnockoutStage, Match, Prediction, ScoringAudit, ScoringRule, Team,
-    TelegramChatId, TelegramUserId, Tournament, TournamentGroup, TournamentGroupAssignment,
+    KnockoutPhaseState, KnockoutStage, Match, Prediction, RankingEntry, ScoringAudit, ScoringRule,
+    Team, TelegramChatId, TelegramUserId, Tournament, TournamentGroup, TournamentGroupAssignment,
     TournamentGroupState, User,
 };
 
@@ -196,6 +196,18 @@ pub trait ScoringAuditRepository: Send + Sync {
     /// successful scoring run. The struct is built fresh per call — no
     /// upsert semantics, the table is append-only.
     async fn record(&self, audit: &ScoringAudit) -> RepoResult<()>;
+}
+
+#[async_trait]
+pub trait RankingRepository: Send + Sync {
+    /// Leaderboard of a pickem. Aggregates `points_awarded` from the three
+    /// scored tables (match predictions, group standings, best thirds) per
+    /// user, then joins against `group_members` so every roster entry is
+    /// represented — members with no scored points yet appear with
+    /// `total_points = 0`. Sorted by points desc, then by `first_name` asc
+    /// as a stable tiebreak. An empty `Vec` means the pickem has no
+    /// members or does not exist.
+    async fn group_ranking(&self, pickem_group_id: Uuid) -> RepoResult<Vec<RankingEntry>>;
 }
 
 #[async_trait]

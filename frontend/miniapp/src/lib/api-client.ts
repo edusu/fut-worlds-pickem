@@ -14,6 +14,7 @@ import {
   activeKnockoutsSchema,
   matchesResponseSchema,
   okResponseSchema,
+  rankingResponseSchema,
 } from './api-types';
 import type {
   AcceptedResponse,
@@ -21,6 +22,7 @@ import type {
   ActiveKnockout,
   MatchWithPrediction,
   OkResponse,
+  RankingRow,
   SubmitBestThirdsRequest,
   SubmitMatchesRequest,
   SubmitStandingsRequest,
@@ -73,3 +75,6 @@ export const submitStandings = (body: SubmitStandingsRequest): Promise<OkRespons
 
 export const submitBestThirds = (body: SubmitBestThirdsRequest): Promise<OkResponse> =>
   request('post', '/api/predictions/best-thirds', okResponseSchema, body);
+
+export const fetchRanking = (pickemId: string): Promise<RankingRow[]> =>
+  request('get', `/api/groups/${pickemId}/ranking`, rankingResponseSchema);

@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH match_pts AS (\n                SELECT user_id, SUM(points_awarded) AS total\n                FROM predictions\n                WHERE pickem_group_id = $1\n                  AND points_awarded IS NOT NULL\n                GROUP BY user_id\n            ),\n            standings_pts AS (\n                SELECT user_id, SUM(points_awarded) AS total\n                FROM group_standings_predictions\n                WHERE pickem_group_id = $1\n                  AND points_awarded IS NOT NULL\n                GROUP BY user_id\n            )\n            SELECT u.telegram_id AS \"telegram_id!\",\n                   u.first_name  AS \"first_name!\",\n                   (COALESCE(mp.total, 0)\n                    + COALESCE(sp.total, 0)\n                    + COALESCE(bts.points_awarded, 0)) AS \"total_points!\"\n            FROM group_members gm\n            JOIN users u                   ON u.telegram_id = gm.user_id\n            LEFT JOIN match_pts mp         ON mp.user_id    = gm.user_id\n            LEFT JOIN standings_pts sp     ON sp.user_id    = gm.user_id\n            LEFT JOIN best_thirds_scoring bts\n                ON bts.user_id = gm.user_id AND bts.pickem_group_id = $1\n            WHERE gm.group_id = $1\n            ORDER BY 3 DESC, u.first_name ASC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "telegram_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "first_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "total_points!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "43f49864e7cbd761fd01e176fbf40460015548e3345c02e883919157c3924e14"
+}

@@ -167,3 +167,15 @@ export interface SubmitBestThirdsRequest {
 
 export const okResponseSchema = z.object({ ok: z.boolean() });
 export type OkResponse = z.infer<typeof okResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// GET /api/groups/{id}/ranking
+// ---------------------------------------------------------------------------
+
+export const rankingRowSchema = z.object({
+  user_id: z.number().int(),
+  first_name: z.string(),
+  total_points: z.number().int(),
+});
+export type RankingRow = z.infer<typeof rankingRowSchema>;
+export const rankingResponseSchema = z.array(rankingRowSchema);

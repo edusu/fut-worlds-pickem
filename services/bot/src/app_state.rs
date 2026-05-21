@@ -3,8 +3,12 @@
 //! Handlers receive `&AppState` and pull whatever ports they need.
 use std::sync::Arc;
 
-use domain::repository::{GroupRepository, ScoringRuleRepository, UserRepository};
-use persistence::{PgGroupRepository, PgScoringRuleRepository, PgUserRepository};
+use domain::repository::{
+    GroupRepository, RankingRepository, ScoringRuleRepository, UserRepository,
+};
+use persistence::{
+    PgGroupRepository, PgRankingRepository, PgScoringRuleRepository, PgUserRepository,
+};
 use sqlx::PgPool;
 use telegram_client::TelegramClient;
 
@@ -14,6 +18,7 @@ pub struct AppState {
     pub users: Arc<dyn UserRepository>,
     pub groups: Arc<dyn GroupRepository>,
     pub scoring_rules: Arc<dyn ScoringRuleRepository>,
+    pub ranking: Arc<dyn RankingRepository>,
     /// Outbound Telegram channel. Today the update loop calls it (to
     /// translate `HandlerOutcome::Reply` into a Telegram message); features
     /// #4/#7 will let handlers send messages with inline buttons / pin chat
@@ -31,7 +36,8 @@ impl AppState {
         Self {
             users: Arc::new(PgUserRepository::new(pool.clone())),
             groups: Arc::new(PgGroupRepository::new(pool.clone())),
-            scoring_rules: Arc::new(PgScoringRuleRepository::new(pool)),
+            scoring_rules: Arc::new(PgScoringRuleRepository::new(pool.clone())),
+            ranking: Arc::new(PgRankingRepository::new(pool)),
             telegram,
         }
     }

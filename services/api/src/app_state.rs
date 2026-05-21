@@ -8,13 +8,14 @@ use std::sync::Arc;
 
 use domain::repository::{
     BestThirdsPredictionRepository, GroupRepository, KnockoutPhaseRepository, MatchRepository,
-    PredictionRepository, StandingsPredictionRepository, TeamRepository, TournamentGroupRepository,
-    TournamentRepository,
+    PredictionRepository, RankingRepository, StandingsPredictionRepository, TeamRepository,
+    TournamentGroupRepository, TournamentRepository,
 };
 use persistence::{
     PgBestThirdsPredictionRepository, PgGroupRepository, PgKnockoutPhaseRepository,
-    PgMatchRepository, PgPredictionRepository, PgStandingsPredictionRepository, PgTeamRepository,
-    PgTournamentGroupRepository, PgTournamentRepository,
+    PgMatchRepository, PgPredictionRepository, PgRankingRepository,
+    PgStandingsPredictionRepository, PgTeamRepository, PgTournamentGroupRepository,
+    PgTournamentRepository,
 };
 use sqlx::PgPool;
 
@@ -29,6 +30,7 @@ pub struct AppState {
     pub predictions: Arc<dyn PredictionRepository>,
     pub standings: Arc<dyn StandingsPredictionRepository>,
     pub best_thirds: Arc<dyn BestThirdsPredictionRepository>,
+    pub ranking: Arc<dyn RankingRepository>,
 }
 
 impl AppState {
@@ -45,7 +47,8 @@ impl AppState {
             teams: Arc::new(PgTeamRepository::new(pool.clone())),
             predictions: Arc::new(PgPredictionRepository::new(pool.clone())),
             standings: Arc::new(PgStandingsPredictionRepository::new(pool.clone())),
-            best_thirds: Arc::new(PgBestThirdsPredictionRepository::new(pool)),
+            best_thirds: Arc::new(PgBestThirdsPredictionRepository::new(pool.clone())),
+            ranking: Arc::new(PgRankingRepository::new(pool)),
         }
     }
 }
