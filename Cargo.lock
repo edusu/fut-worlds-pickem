@@ -965,6 +965,7 @@ dependencies = [
  "shared",
  "sports-client",
  "sqlx",
+ "telegram-client",
  "tokio",
  "tokio-cron-scheduler",
  "tracing",

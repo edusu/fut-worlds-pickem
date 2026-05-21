@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO prediction_reminders (user_id, match_id)\n            SELECT * FROM UNNEST($1::BIGINT[], $2::UUID[])\n            ON CONFLICT (user_id, match_id) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "17759a3c0bab7019ad0cdea346351d49215db5b35c23f185567df387bbdebcc3"
+}

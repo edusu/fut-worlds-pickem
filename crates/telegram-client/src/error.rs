@@ -16,6 +16,12 @@ pub enum TelegramError {
     /// Local request building or response parsing failed.
     #[error("Telegram protocol error")]
     Protocol,
+    /// The user has never initiated the chat with the bot, or has
+    /// blocked / deactivated it — Telegram returns `403 Forbidden`.
+    /// Surfaced as a typed variant so the reminder scheduler can
+    /// silently skip the recipient instead of bailing out on the tick.
+    #[error("Telegram forbade the bot from messaging this user")]
+    ForbiddenByUser,
 }
 
 /// Convenience alias for a fully-formed report of a Telegram error.

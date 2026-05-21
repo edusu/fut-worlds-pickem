@@ -27,6 +27,7 @@ persistence = { path = "../../crates/persistence" }
 messaging = { path = "../../crates/messaging" }
 sports-client = { path = "../../crates/sports-client" }
 shared = { path = "../../crates/shared" }
+telegram-client = { path = "../../crates/telegram-client" }
 
 tokio = { workspace = true }
 sqlx = { workspace = true }

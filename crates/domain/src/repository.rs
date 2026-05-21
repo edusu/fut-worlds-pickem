@@ -12,9 +12,9 @@ pub use crate::error::RepoResult;
 
 use crate::{
     BestThirdsPrediction, Group, GroupMember, GroupStandingsPrediction, KnockoutPhase,
-    KnockoutPhaseState, KnockoutStage, Match, Prediction, RankingEntry, ScoringAudit, ScoringRule,
-    Team, TelegramChatId, TelegramUserId, Tournament, TournamentGroup, TournamentGroupAssignment,
-    TournamentGroupState, User,
+    KnockoutPhaseState, KnockoutStage, Match, PendingReminder, Prediction, RankingEntry,
+    ScoringAudit, ScoringRule, Team, TelegramChatId, TelegramUserId, Tournament, TournamentGroup,
+    TournamentGroupAssignment, TournamentGroupState, User,
 };
 
 #[async_trait]
@@ -196,6 +196,35 @@ pub trait ScoringAuditRepository: Send + Sync {
     /// successful scoring run. The struct is built fresh per call — no
     /// upsert semantics, the table is append-only.
     async fn record(&self, audit: &ScoringAudit) -> RepoResult<()>;
+}
+
+#[async_trait]
+pub trait PredictionReminderRepository: Send + Sync {
+    /// All `(user_id, match_id)` pairs eligible for a deadline reminder DM
+    /// right now. A pair is eligible when:
+    ///
+    /// - the match's parent (`tournament_group` xor `knockout_phase`) is
+    ///   `state = 'open'` and its `deadline_at` falls in the window
+    ///   `[now + min_offset, now + max_offset]`,
+    /// - the match has not yet kicked off,
+    /// - the user is a member of at least one pickem and that membership
+    ///   has no matching `predictions` row for the match, and
+    /// - no row in `prediction_reminders` exists for the pair yet.
+    ///
+    /// Results are returned grouped by `user_id` so callers can batch
+    /// multiple pending matches into a single DM per user.
+    async fn list_pending(
+        &self,
+        now: DateTime<Utc>,
+        min_offset: chrono::Duration,
+        max_offset: chrono::Duration,
+    ) -> RepoResult<Vec<PendingReminder>>;
+
+    /// Atomically record that the bot delivered reminder DMs for the
+    /// supplied `(user_id, match_id)` pairs. Implemented as a single
+    /// multi-row INSERT in one transaction so a partial scheduler
+    /// failure cannot leave half the rows marked.
+    async fn mark_sent_batch(&self, pairs: &[PendingReminder]) -> RepoResult<()>;
 }
 
 #[async_trait]

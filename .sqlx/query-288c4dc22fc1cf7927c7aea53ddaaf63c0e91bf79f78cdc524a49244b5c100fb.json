@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT DISTINCT gm.user_id AS \"user_id!\",\n                            m.id       AS \"match_id!\"\n            FROM matches m\n            LEFT JOIN tournament_groups tg ON tg.id = m.tournament_group_id\n            LEFT JOIN knockout_phases  kp  ON kp.id = m.knockout_phase_id\n            CROSS JOIN group_members gm\n            LEFT JOIN predictions p\n                ON p.user_id         = gm.user_id\n               AND p.match_id        = m.id\n               AND p.pickem_group_id = gm.group_id\n            WHERE m.kickoff_at > $1\n              AND p.id IS NULL\n              AND (\n                  (tg.state = 'open' AND tg.deadline_at BETWEEN $2 AND $3)\n               OR (kp.state = 'open' AND kp.deadline_at BETWEEN $2 AND $3)\n              )\n              AND NOT EXISTS (\n                  SELECT 1 FROM prediction_reminders pr\n                  WHERE pr.user_id  = gm.user_id\n                    AND pr.match_id = m.id\n              )\n            ORDER BY gm.user_id, m.id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "match_id!",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "288c4dc22fc1cf7927c7aea53ddaaf63c0e91bf79f78cdc524a49244b5c100fb"
+}

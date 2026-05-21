@@ -10,10 +10,15 @@ pub use error::{TelegramError, TelegramReport, TelegramResult};
 pub use throttle::ThrottledTelegramClient;
 
 use async_trait::async_trait;
-use error_stack::ResultExt;
+use error_stack::Report;
 use frankenstein::client_reqwest::Bot;
 use frankenstein::methods::SendMessageParams;
 use frankenstein::AsyncTelegramApi;
+
+/// Telegram HTTP code returned when the bot cannot DM the user — either
+/// the user never started the bot, has blocked it, or has been
+/// deactivated. The scheduler treats this as "skip and continue".
+const TELEGRAM_FORBIDDEN_CODE: u64 = 403;
 
 /// One inline-keyboard button. Either a callback (data routed back to the
 /// bot) or a URL (opens a Mini App / external link).
@@ -81,18 +86,22 @@ impl FrankensteinClient {
 impl TelegramClient for FrankensteinClient {
     /// Send a plain-text message. Builds `SendMessageParams` with `chat_id`
     /// and `text` only — formatting, threads and reply-markup default to
-    /// `None`. Wraps any frankenstein error as `TelegramError::Api`.
+    /// `None`.
+    ///
+    /// Maps Telegram's `403 Forbidden` (user never started the bot,
+    /// blocked it, or got deactivated) to the typed
+    /// `TelegramError::ForbiddenByUser` so the reminder scheduler can
+    /// pattern-match and skip the recipient; every other failure
+    /// surfaces as `TelegramError::Api`.
     async fn send_text(&self, chat_id: i64, text: &str) -> TelegramResult<()> {
         let params = SendMessageParams::builder()
             .chat_id(chat_id)
             .text(text.to_string())
             .build();
 
-        self.bot
-            .send_message(&params)
-            .await
-            .change_context(TelegramError::Api)?;
-
+        if let Err(e) = self.bot.send_message(&params).await {
+            return Err(map_frankenstein_error(e));
+        }
         Ok(())
     }
 
@@ -119,4 +128,17 @@ impl TelegramClient for FrankensteinClient {
         Err(error_stack::Report::new(TelegramError::Api)
             .attach("FrankensteinClient::set_webhook not implemented"))
     }
+}
+
+/// Map a `frankenstein::Error` into our typed taxonomy. The `Api(403)`
+/// case is split out so callers can pattern-match on
+/// `TelegramError::ForbiddenByUser` and skip the user; every other
+/// variant collapses to `TelegramError::Api` with the source attached.
+fn map_frankenstein_error(e: frankenstein::Error) -> Report<TelegramError> {
+    if let frankenstein::Error::Api(ref resp) = e {
+        if resp.error_code == TELEGRAM_FORBIDDEN_CODE {
+            return Report::new(e).change_context(TelegramError::ForbiddenByUser);
+        }
+    }
+    Report::new(e).change_context(TelegramError::Api)
 }
