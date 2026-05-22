@@ -15,11 +15,32 @@ pub use parser::Command;
 
 use domain::{TelegramChatId, User};
 use telegram_client::Button;
+use uuid::Uuid;
 
 /// Label rendered on every inline button that launches the Mini App
 /// (`/new_pickem` confirmation, `/play`). Kept here so the CTA stays
 /// identical across handlers.
 pub const OPEN_MINI_APP_LABEL: &str = "Open Mini App";
+
+/// Build the Mini App launch URL for a given pickem.
+///
+/// Encodes the pickem id as a `?pickem=<uuid>` query parameter so the
+/// Mini App can bind the session to that pickem on load. We can't use
+/// Telegram's `start_param` (which would be the more native channel)
+/// because Telegram only populates it for *Direct Link* Mini Apps
+/// (`t.me/<bot>/<app>?startapp=X`); for the inline `web_app` buttons
+/// the bot sends today, the launch URL is the only signal that
+/// reaches the frontend.
+pub fn build_miniapp_url(base: &str, pickem_id: Option<Uuid>) -> String {
+    let Some(id) = pickem_id else {
+        return base.to_string();
+    };
+    // Respect any query string the operator may already have pinned on
+    // `MINIAPP_URL` (e.g. a feature-flag override) so we don't break
+    // the URL with a duplicate `?`.
+    let sep = if base.contains('?') { '&' } else { '?' };
+    format!("{base}{sep}pickem={id}")
+}
 
 /// Single-button row that opens the Mini App at `url`. Both `/new_pickem`
 /// and `/play` render exactly this keyboard.

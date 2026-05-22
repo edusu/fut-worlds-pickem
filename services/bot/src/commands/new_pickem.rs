@@ -12,7 +12,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::app_state::AppState;
-use crate::commands::{mini_app_button_row, CommandContext, HandlerOutcome};
+use crate::commands::{build_miniapp_url, mini_app_button_row, CommandContext, HandlerOutcome};
 
 /// Handle `/new_pickem`. Creates a new pickem group bound to the current
 /// Telegram chat, with the invoking user as the owner, and registers that
@@ -88,7 +88,8 @@ pub async fn handle(state: &AppState, ctx: &CommandContext) -> anyhow::Result<Ha
          or tell the others to run /join first.",
         group.name
     );
-    let buttons = mini_app_button_row(&state.miniapp_url);
+    let miniapp_url = build_miniapp_url(&state.miniapp_url, Some(group.id));
+    let buttons = mini_app_button_row(&miniapp_url);
 
     let message_id = state
         .telegram

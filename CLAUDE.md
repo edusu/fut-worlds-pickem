@@ -34,20 +34,31 @@ inside `frontend/miniapp/`) is consumed only by the API service.
                                        └──────────┘
 ```
 
-- **`services/bot`** — owns Telegram I/O. Long-polling update loop dispatching
-  slash commands. It is the *only* service that calls the Telegram Bot API
-  (social convention). The `event_consumers::notify` NATS consumer subscribed
-  to `pickem.notification.requested` is currently a stub — push-to-chat is
-  deferred (see "Current scope" below).
+- **`services/bot`** — owns the Telegram update path: long-polling loop
+  dispatching slash commands, replying through a shared `TelegramClient`,
+  and surfacing the Mini App via `setMyCommands` + `setChatMenuButton` at
+  startup. The `event_consumers::notify` NATS consumer subscribed to
+  `pickem.notification.requested` is currently a stub — push-to-chat is
+  deferred (see "Current scope" below). `services/events` also holds a
+  `TelegramClient` so it can send pre-deadline reminder DMs directly; that
+  is the one deliberate exception to the "only the bot talks to Telegram"
+  rule (chosen so #8 did not need to reactivate the `NotificationRequested`
+  contract).
 - **`services/api`** — Axum HTTP server consumed by the Mini App. Every
   protected route is gated by `middleware::auth::verify_init_data` (HMAC-SHA256
   over Telegram's signed `initData`). The endpoint also enforces "the parent
   submission window (tournament_group or knockout_phase) is still open" at
   submission time, since v1 has no background job to close them at the deadline.
-- **`services/events`** — ingester (polls football-data.org for fixtures and
-  results) and scorer (consumes `pickem.match.finished` and writes
-  `predictions.points_awarded`). The scheduler module is scaffolded but inert
-  in v1 — deadlines are enforced at write time, not by a cron job.
+- **`services/events`** — three concurrent loops: (a) the **ingester** polls
+  football-data.org for fixtures and emits `pickem.match.finished` on
+  `→ finished` transitions; (b) the **scorer** (live `MatchFinished`
+  consumer plus a periodic `reconcile` loop) writes
+  `predictions.points_awarded` and the end-of-group-stage
+  `group_standings_predictions` / `best_thirds_scoring` rows; (c) the
+  **reminder scheduler** in `scheduler/reminders.rs` DMs members with
+  pending predictions in the configured pre-deadline window. Submission
+  deadlines are still enforced at write time by the API — there is no
+  cron job that flips a parent's `state` column.
 
 ### Library crates
 
@@ -158,6 +169,13 @@ Optional:
   reconcile loop in seconds (default 600). The loop catches matches
   finished while the scorer was down, group standings pending
   transition, and best-thirds waiting for the R16 bracket.
+- `REMINDER_TICK_INTERVAL_SECS` — cadence of the events reminder
+  scheduler tick in seconds (default 600).
+- `REMINDER_WINDOW_HOURS_MIN` / `REMINDER_WINDOW_HOURS_MAX` — bounds (in
+  hours from `now`) of the deadline window for which reminder DMs are
+  dispatched. Defaults to 6 and 24 — i.e. a member who has not submitted
+  is DMed when the matching parent's `deadline_at` is between 6h and 24h
+  away.
 
 Copy `.env.example` to `.env` for local dev. The `justfile` has
 `set dotenv-load := true`, so any recipe sees the same values.
@@ -251,26 +269,44 @@ What's in:
 
 - Bot receives `/start`, `/new_pickem`, `/join`, `/play`, `/ranking`, `/help`
   and replies synchronously to the invoking chat.
-- Mini App lets users submit predictions (auth via signed `initData`).
-- Events service ingests fixtures from football-data.org, detects finished
-  matches, and writes `predictions.points_awarded` via the scorer.
+- Mini App lets users submit predictions, gated by full HMAC-SHA256
+  validation of Telegram's signed `initData` in
+  `services/api/src/middleware/auth.rs`.
+- Mini App entry points: persistent DM menu button
+  (`setChatMenuButton`), pinned `/new_pickem` confirmation with an
+  inline `web_app` button, and `/play` slash command producing the
+  same button on demand.
+- Events service ingests fixtures from football-data.org, detects
+  finished matches, scores them via the live consumer (plus a
+  reconcile loop that catches anything missed while the scorer was
+  down), and emits end-of-group-stage standings + best-thirds scores
+  in the same pass.
+- Pre-deadline reminder DMs from
+  `services/events/src/scheduler/reminders.rs` — grouped per user so a
+  member with N pending predictions receives one DM, not N, and
+  idempotent across ticks via the `prediction_reminders` table.
 - Ranking is computed on demand: `/ranking` and `GET /api/groups/{id}/ranking`
   both run a `SUM(points_awarded) GROUP BY user_id` against Postgres at
   request time.
 
 What's deferred (scaffolded but dormant):
 
-- Push notifications to the chat. The `pickem.notification.requested`
-  contract, the bot's `event_consumers::notify` consumer, and the
+- **Push notifications to a chat (group-level messages, not DMs).** The
+  `pickem.notification.requested` contract, the bot's
+  `event_consumers::notify` consumer, and the
   `SubmissionDeadlineApproaching` / `SubmissionWindowClosed` /
-  `SubmissionWindowScored` event variants are all declared but no producer
-  emits them. (These were the `Round*` events before the rounds-to-phases
-  refactor.)
-- The cron scheduler (`tokio-cron-scheduler`) — the module is scaffolded,
-  no jobs are registered. Submission closing is enforced at write time by
+  `SubmissionWindowScored` event variants are all declared but no
+  producer emits them. (These were the `Round*` events before the
+  rounds-to-phases refactor.) Pre-deadline DMs — the only live
+  notification path — bypass this contract entirely and write through
+  the events service's own `TelegramClient`.
+- **The `tokio-cron-scheduler`-based job runner** that would publish
+  those deferred notification events. The module is scaffolded, no
+  jobs are registered. Submission closing is enforced at write time by
   the API validating `parent.state == 'open' AND now < parent.deadline_at`,
-  where `parent` is the relevant `tournament_groups` or `knockout_phases`
-  row.
+  where `parent` is the relevant `tournament_groups` or
+  `knockout_phases` row. (The live reminder scheduler uses a plain
+  `tokio::time::interval`, not `tokio-cron-scheduler`.)
 - `updated_at` columns on mutation-prone tables (matches, predictions,
   groups, phases). Out for v1; reintroduce with a `BEFORE UPDATE` trigger
   when audit becomes a requirement.
@@ -285,10 +321,23 @@ variant, and only then add scheduler jobs that publish the timed templates.
 
 ## Things to know that aren't obvious from the code
 
-- The Mini App `auth` middleware is currently an **insecure stub** that only
-  checks the header is present — it must implement full HMAC-SHA256 validation
-  before anything ships. Look for the `INSECURE STUB` comment in
-  `services/api/src/middleware/auth.rs`.
+- The Mini App auth middleware derives the HMAC secret once at startup
+  from `TELEGRAM_BOT_TOKEN` (it is the *inner* key of
+  `HMAC(SHA256("WebAppData"), bot_token)`) and caches it in middleware
+  state, so each request only runs the inner HMAC pass. Rotating the
+  bot token therefore requires restarting the API service — there is
+  no live reload of the cached secret.
+- Bot entry points encode the pickem id as a `?pickem=<uuid>` query
+  parameter on the Mini App launch URL — built by
+  `commands::build_miniapp_url` in `services/bot/src/commands/mod.rs`
+  and consumed by `getPickemId()` in
+  `frontend/miniapp/src/lib/pickem.ts`. The query-param route exists
+  because inline `web_app` buttons cannot populate
+  `initDataUnsafe.start_param` — Telegram only sets that field when
+  the Mini App is opened via a Direct Link (`t.me/<bot>/<app>?startapp=X`).
+  The DM menu button, and `/play` in a chat with no pickem, still
+  pass the bare URL; the Mini App then renders the "open from your
+  group" hint instead of the predictions UI.
 - `frontend/miniapp/` is intentionally NOT a Cargo workspace member — the
   workspace `members` glob excludes the `frontend/` directory.
 - All compose files live in `infra/`. `infra/docker-compose.yml` is the

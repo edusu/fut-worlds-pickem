@@ -1,20 +1,24 @@
 /**
- * Helpers around the active pickem id. The bot opens the Mini App with
- * `start_parameter` set to the pickem's UUID (sub-PR #7); the FE reads it
- * here and forwards it to the API on every request body / query param.
+ * Helpers around the active pickem id. The bot encodes the pickem id
+ * as a `?pickem=<uuid>` query parameter on the Mini App launch URL
+ * (inline `web_app` buttons do not populate `initDataUnsafe.start_param`
+ * — Telegram only sets that field for Direct Link Mini Apps,
+ * `t.me/<bot>/<app>?startapp=X`). We read the query parameter first
+ * and fall back to `start_param` so future Direct Link wiring keeps
+ * working without changes here.
  */
 
 import { uuidSchema } from './api-types';
 import { getStartParam } from './telegram';
 
 /**
- * Resolve the pickem the user is acting on. `null` when the Mini App was
- * opened without a `start_param` (e.g. via the bot's global menu button)
- * — callers should render a "open from your group" hint instead of the
- * predictions UI.
+ * Resolve the pickem the user is acting on. `null` when the Mini App
+ * was opened without a pickem binding (e.g. via the bot's global menu
+ * button, or `/play` in a chat with no pickem yet) — callers should
+ * render a "open from your group" hint instead of the predictions UI.
  */
 export function getPickemId(): string | null {
-  const raw = getStartParam();
+  const raw = new URLSearchParams(window.location.search).get('pickem') ?? getStartParam();
   if (!raw) return null;
   const parsed = uuidSchema.safeParse(raw);
   return parsed.success ? parsed.data : null;
