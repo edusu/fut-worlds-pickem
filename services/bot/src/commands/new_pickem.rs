@@ -33,20 +33,28 @@ pub async fn handle(state: &AppState, ctx: &CommandContext) -> anyhow::Result<Ha
         .await
         .map_err(report_to_anyhow)?;
 
-    // Idempotency check before insert. The UNIQUE constraint on
-    // `telegram_chat_id` is the backstop against a concurrent second
-    // `/new_pickem`; the early return here also skips the send+pin path
-    // below so re-runs do not pin a duplicate message.
+    // Idempotency check before insert. If a pickem already exists,
+    // re-post the inline-button message so a previous failure that left
+    // an orphan (DB row but no Telegram message) is self-healing.
     if let Some(existing) = state
         .groups
         .find_by_chat(ctx.chat_id)
         .await
         .map_err(report_to_anyhow)?
     {
-        return Ok(HandlerOutcome::Reply(format!(
-            "This group already has a pickem ('{}'). Use /join to participate.",
+        let miniapp_url = build_miniapp_url(&state.miniapp_url, Some(existing.id));
+        let buttons = mini_app_button_row(&miniapp_url);
+        let body = format!(
+            "This group already has a pickem ('{}'). Use /join to participate, \
+             then tap the button below to enter your predictions.",
             existing.name
-        )));
+        );
+        state
+            .telegram
+            .send_text_with_buttons(ctx.chat_id.0, &body, &buttons)
+            .await
+            .map_err(report_to_anyhow)?;
+        return Ok(HandlerOutcome::Silent);
     }
 
     let scoring_rule = state

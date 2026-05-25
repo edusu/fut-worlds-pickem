@@ -117,13 +117,22 @@ impl Config {
 
     /// Resolve the reminder window bounds as a `(min, max)` pair of
     /// hour offsets from `now`. Falls back to the 6h/24h defaults.
+    ///
+    /// # Panics
+    /// Panics if `min >= max` — an inverted window would silently
+    /// disable all reminders via the SQL `BETWEEN` clause.
     pub fn reminder_window_hours(&self) -> (u64, u64) {
-        (
-            self.reminder_window_hours_min
-                .unwrap_or(DEFAULT_REMINDER_WINDOW_HOURS_MIN),
-            self.reminder_window_hours_max
-                .unwrap_or(DEFAULT_REMINDER_WINDOW_HOURS_MAX),
-        )
+        let min = self
+            .reminder_window_hours_min
+            .unwrap_or(DEFAULT_REMINDER_WINDOW_HOURS_MIN);
+        let max = self
+            .reminder_window_hours_max
+            .unwrap_or(DEFAULT_REMINDER_WINDOW_HOURS_MAX);
+        assert!(
+            min < max,
+            "REMINDER_WINDOW_HOURS_MIN ({min}) must be less than REMINDER_WINDOW_HOURS_MAX ({max})"
+        );
+        (min, max)
     }
 }
 

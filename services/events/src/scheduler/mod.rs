@@ -13,7 +13,7 @@ use persistence::PgPredictionReminderRepository;
 use rust_utils::network::nats::NatsClient;
 use shared::Config;
 use sqlx::PgPool;
-use telegram_client::{FrankensteinClient, TelegramClient};
+use telegram_client::{FrankensteinClient, TelegramClient, ThrottledTelegramClient};
 use tokio::time::interval;
 use tracing::{error, info};
 
@@ -25,8 +25,10 @@ use reminders::ReminderDeps;
 /// the other top-level event loops so a future job emitting events
 /// does not need to refactor `main.rs`.
 pub async fn run(config: Config, pool: PgPool, _nats: NatsClient) -> anyhow::Result<()> {
-    let telegram: Arc<dyn TelegramClient> =
-        Arc::new(FrankensteinClient::new(config.telegram_bot_token.expose()));
+    let telegram: Arc<dyn TelegramClient> = Arc::new(
+        ThrottledTelegramClient::new(FrankensteinClient::new(config.telegram_bot_token.expose()))
+            .map_err(shared::report_to_anyhow)?,
+    );
     let reminders_repo = Arc::new(PgPredictionReminderRepository::new(pool));
     let (window_min, window_max) = config.reminder_window_hours();
     let deps = ReminderDeps {

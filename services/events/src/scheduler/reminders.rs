@@ -3,9 +3,10 @@
 //! One tick: find every `(user, match)` pair whose parent's deadline
 //! falls in the configured window, that has no submitted prediction
 //! across the user's pickems and no prior reminder row. Group the
-//! pairs by user, send a single DM listing the user's pending matches,
-//! and atomically mark every pair in `prediction_reminders` so the
-//! next tick is a no-op.
+//! pairs by user, mark them as sent (so the next tick skips them),
+//! then send a single DM. This mark-before-send order gives
+//! at-most-once delivery: a crash between mark and send loses one
+//! DM rather than causing duplicates.
 //!
 //! Per-user grouping matters because all 6 matches of a World Cup
 //! group share one parent deadline — without batching, a user with
@@ -54,19 +55,20 @@ pub async fn run_once(deps: &ReminderDeps) -> anyhow::Result<usize> {
     // linear pass suffices.
     let mut delivered = 0usize;
     for (user_id, batch) in group_by_user(pending) {
+        // Mark before send: at-most-once. A crash between mark and
+        // send loses one DM; the alternative (send-then-mark) risks
+        // duplicates on transient Postgres failures.
+        deps.reminders
+            .mark_sent_batch(&batch)
+            .await
+            .map_err(shared::report_to_anyhow)?;
+
         let text = render_reminder(batch.len());
         match deps.telegram.send_text(user_id.0, &text).await {
             Ok(()) => {
-                deps.reminders
-                    .mark_sent_batch(&batch)
-                    .await
-                    .map_err(shared::report_to_anyhow)?;
-                delivered += batch.len();
+                delivered += 1;
             }
             Err(report) if matches!(report.current_context(), TelegramError::ForbiddenByUser) => {
-                // User never started the bot in DM or has blocked it.
-                // Do NOT mark sent — if they `/start` the bot before
-                // the window closes a later tick can still reach them.
                 warn!(
                     user_id = user_id.0,
                     pending = batch.len(),
@@ -78,7 +80,7 @@ pub async fn run_once(deps: &ReminderDeps) -> anyhow::Result<usize> {
                     user_id = user_id.0,
                     pending = batch.len(),
                     error = ?report,
-                    "reminder DM failed; will retry next tick"
+                    "reminder DM failed"
                 );
             }
         }
@@ -104,14 +106,13 @@ fn group_by_user(
     grouped
 }
 
-/// Render the DM body. Plain text only — the reminder points users at
-/// `/play`, which itself renders an inline `web_app` button; keeping
-/// the button out of this DM avoids duplicating the entry-point logic.
+/// Render the DM body. Plain text only — directs users back to their
+/// group chat where `/play` can resolve the pickem context.
 fn render_reminder(pending_count: usize) -> String {
     format!(
         "Reminder: you have {pending_count} pending prediction{plural} \
-         before the next deadline. Send /play to open the Mini App and \
-         lock them in.",
+         before the next deadline. Head to your group chat and tap /play \
+         to open the Mini App and lock them in.",
         plural = if pending_count == 1 { "" } else { "s" },
     )
 }
@@ -152,7 +153,10 @@ mod tests {
 
     #[test]
     fn render_reminder_uses_singular_for_one() {
-        assert!(render_reminder(1).contains("1 pending prediction "));
-        assert!(render_reminder(3).contains("3 pending predictions "));
+        let one = render_reminder(1);
+        assert!(one.contains("1 pending prediction "), "{one}");
+        assert!(one.contains("group chat"), "{one}");
+        let many = render_reminder(3);
+        assert!(many.contains("3 pending predictions "), "{many}");
     }
 }
