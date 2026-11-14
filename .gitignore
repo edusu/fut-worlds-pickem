@@ -35,3 +35,10 @@ coverage/
 ROADMAP.md
 docs/
 graphify-out/
+
+# AI agent local config
+.claude/
+.agents/
+.cursor/
+.codex/
+.gemini/
